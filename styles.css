@@ -452,6 +452,34 @@ textarea:focus {
   margin-bottom: 16px;
 }
 
+.ai-search-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px;
+  margin: -4px 0 16px;
+}
+
+.ai-image-btn input {
+  display: none;
+}
+
+.ai-search-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ai-search-preview img {
+  width: 72px;
+  height: 54px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
 .view-switch {
   display: inline-flex;
   gap: 4px;

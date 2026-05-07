@@ -31,7 +31,7 @@
       <div class="sidebar-card">
         <span class="muted">Demo modular</span>
         <strong>Fotos + datos + plano + score</strong>
-        <p>Los datos se guardan en este navegador con localStorage.</p>
+        <p id="storageModeText">Los datos se guardan en este navegador con localStorage.</p>
       </div>
     </aside>
 
@@ -43,6 +43,9 @@
         </div>
         <div class="top-actions">
           <span id="aiStatus" class="status-pill warn">OpenRouter sin configurar</span>
+          <span id="authStatus" class="status-pill">Portal público</span>
+          <button id="loginBtn">Ingresar</button>
+          <button id="logoutBtn" class="hidden">Salir</button>
           <button class="primary" id="newPropertyBtn">Nueva propiedad</button>
         </div>
       </header>
@@ -80,6 +83,17 @@
                   <option value="4">4+ dorm.</option>
                 </select>
               </div>
+              <div class="ai-search-box">
+                <input id="aiSearchInput" type="search" placeholder="Buscá con IA: depto 2 ambientes en la costa, terraza, buen traslado..." />
+                <label class="upload-btn ai-image-btn">
+                  Imagen
+                  <input id="aiSearchImageInput" type="file" accept="image/*" />
+                </label>
+                <button id="aiSearchBtn" class="primary">Buscar con IA</button>
+                <button id="clearAiSearchBtn">Limpiar IA</button>
+              </div>
+              <div id="aiSearchImagePreview" class="ai-search-preview hidden"></div>
+              <div id="aiSearchOutput" class="hint hidden"></div>
               <div id="clientListPane">
                 <div id="clientPropertyGrid" class="property-grid compact"></div>
               </div>
@@ -315,10 +329,10 @@
               <input id="apiKeyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off" />
             </label>
             <label>Modelo visión
-              <input id="modelInput" placeholder="openai/gpt-oss-120b:free" />
+              <input id="modelInput" placeholder="google/gemma-4-31b-it:free" />
             </label>
             <label>Modelo planos
-              <input id="planModelInput" placeholder="openai/gpt-oss-120b:free" />
+              <input id="planModelInput" placeholder="google/gemma-4-31b-it:free" />
             </label>
           </div>
           <div class="hint">
@@ -371,6 +385,19 @@
         <menu>
           <button value="cancel">Cancelar</button>
           <button id="saveManualScoreBtn" value="default" class="primary">Aplicar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog">
+      <form method="dialog" class="dialog-card" id="loginForm">
+        <h2>Ingresar</h2>
+        <label>Email<input id="loginEmailInput" type="email" autocomplete="username" required /></label>
+        <label>Contraseña<input id="loginPasswordInput" type="password" autocomplete="current-password" required /></label>
+        <div id="loginOutput" class="hint hidden"></div>
+        <menu>
+          <button value="cancel">Cancelar</button>
+          <button class="primary" value="default">Entrar</button>
         </menu>
       </form>
     </dialog>

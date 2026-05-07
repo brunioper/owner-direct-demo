@@ -6,6 +6,8 @@ const { URL } = require("node:url");
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
+const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "properties";
+const SUPABASE_PROFILE_TABLE = process.env.SUPABASE_PROFILE_TABLE || "profiles";
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -36,10 +38,28 @@ const server = http.createServer(async (req, res) => {
       await handleOpenRouter(req, res);
       return;
     }
+    if (req.method === "POST" && parsed.pathname === "/api/auth/login") {
+      await handleLogin(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/auth/me") {
+      await handleMe(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/properties") {
+      await handleGetProperties(req, res);
+      return;
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/properties") {
+      await handleSyncProperties(req, res);
+      return;
+    }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       sendJson(res, 200, {
         openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
-        defaultModel: process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free",
+        defaultModel: process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free",
+        supabaseConfigured: supabaseConfigured(),
+        authConfigured: supabaseAuthConfigured(),
       });
       return;
     }
@@ -72,10 +92,220 @@ function serveStatic(pathname, res) {
   });
 }
 
+function supabaseConfigured() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function supabaseAuthConfigured() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
+}
+
+function supabaseHeaders(extra = {}) {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
+function supabaseUrl(pathname) {
+  return `${process.env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${pathname}`;
+}
+
+function supabaseAuthUrl(pathname) {
+  return `${process.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/${pathname}`;
+}
+
+async function handleLogin(req, res) {
+  const body = await readBody(req);
+  const { email, password } = JSON.parse(body || "{}");
+  if (!email || !password) {
+    sendJson(res, 400, { error: "Faltan email y password." });
+    return;
+  }
+
+  if (!supabaseAuthConfigured()) {
+    const demo = demoUser(email, password);
+    if (!demo) {
+      sendJson(res, 401, { error: "Usuario demo inválido." });
+      return;
+    }
+    sendJson(res, 200, demo);
+    return;
+  }
+
+  const response = await fetch(supabaseAuthUrl("token?grant_type=password"), {
+    method: "POST",
+    headers: {
+      apikey: process.env.SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    sendJson(res, response.status, { error: data.error_description || data.msg || "Login inválido." });
+    return;
+  }
+  const profile = await profileForUser(data.user);
+  sendJson(res, 200, {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    user: { id: data.user.id, email: data.user.email, role: profile.role },
+  });
+}
+
+async function handleMe(req, res) {
+  const session = await sessionFromRequest(req);
+  sendJson(res, 200, { user: session?.user || null });
+}
+
+function demoUser(email, password) {
+  if (password !== "1234") return null;
+  const roles = {
+    "admin@admin.com": "admin",
+    "vendedor@vendedor.com": "vendedor",
+    "user@user.com": "user",
+  };
+  const role = roles[String(email).toLowerCase()];
+  if (!role) return null;
+  return {
+    access_token: `demo-${role}`,
+    user: { id: `demo-${role}`, email: String(email).toLowerCase(), role },
+  };
+}
+
+async function sessionFromRequest(req) {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  if (!supabaseAuthConfigured() && token.startsWith("demo-")) {
+    const role = token.replace("demo-", "");
+    const email = role === "admin" ? "admin@admin.com" : role === "vendedor" ? "vendedor@vendedor.com" : "user@user.com";
+    return { user: { id: token, email, role } };
+  }
+  if (!supabaseAuthConfigured()) return null;
+  const response = await fetch(supabaseAuthUrl("user"), {
+    headers: {
+      apikey: process.env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) return null;
+  const user = await response.json();
+  const profile = await profileForUser(user);
+  return { user: { id: user.id, email: user.email, role: profile.role } };
+}
+
+async function profileForUser(user) {
+  const fallbackRole = user?.email === "admin@admin.com" ? "admin" : user?.email === "vendedor@vendedor.com" ? "vendedor" : "user";
+  if (!supabaseConfigured() || !user?.id) return { role: fallbackRole };
+  const response = await fetch(supabaseUrl(`${SUPABASE_PROFILE_TABLE}?select=role,email&id=eq.${encodeURIComponent(user.id)}&limit=1`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) return { role: fallbackRole };
+  const [profile] = await response.json();
+  return { role: profile?.role || fallbackRole };
+}
+
+function canManageProperties(user) {
+  return user?.role === "admin" || user?.role === "vendedor";
+}
+
+function canSeeProperty(user, property) {
+  if (user?.role === "admin") return true;
+  if (user?.role === "vendedor") return property.ownerId === user.id || property.ownerEmail === user.email;
+  return property.status === "published";
+}
+
+async function handleGetProperties(req, res) {
+  const session = await sessionFromRequest(req);
+  const user = session?.user || null;
+  if (!supabaseConfigured()) {
+    sendJson(res, 200, { configured: false, properties: [] });
+    return;
+  }
+  const response = await fetch(supabaseUrl(`${SUPABASE_TABLE}?select=id,payload,updated_at&order=updated_at.desc`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) {
+    sendJson(res, response.status, { error: await response.text() });
+    return;
+  }
+  const rows = await response.json();
+  const properties = rows
+    .map((row) => row.payload)
+    .filter(Boolean)
+    .filter((property) => canSeeProperty(user, property));
+  sendJson(res, 200, { configured: true, properties, user });
+}
+
+async function handleSyncProperties(req, res) {
+  const body = await readBody(req);
+  const { properties = [] } = JSON.parse(body || "{}");
+  const session = await sessionFromRequest(req);
+  const user = session?.user || null;
+  if (!supabaseConfigured()) {
+    sendJson(res, 200, { configured: false, saved: false });
+    return;
+  }
+  if (!canManageProperties(user)) {
+    sendJson(res, 403, { error: "No tenés permiso para guardar propiedades." });
+    return;
+  }
+  const current = Array.isArray(properties) ? properties : [];
+  const rows = current
+    .filter((property) => user.role === "admin" || !property.ownerId || property.ownerId === user.id)
+    .map((property) => ({
+      id: property.id,
+      payload: {
+        ...property,
+        ownerId: property.ownerId || user.id,
+        ownerEmail: property.ownerEmail || user.email,
+      },
+      owner_id: isUuid(property.ownerId || user.id) ? (property.ownerId || user.id) : null,
+      owner_email: property.ownerEmail || user.email,
+      status: property.status || "draft",
+      updated_at: new Date().toISOString(),
+    })).filter((row) => row.id);
+
+  const existingResponse = await fetch(supabaseUrl(`${SUPABASE_TABLE}?select=id,payload`), { headers: supabaseHeaders() });
+  if (!existingResponse.ok) {
+    sendJson(res, existingResponse.status, { error: await existingResponse.text() });
+    return;
+  }
+  const existing = await existingResponse.json();
+  const nextIds = new Set(rows.map((row) => row.id));
+  await Promise.all(existing
+    .filter((row) => !nextIds.has(row.id) && (user.role === "admin" || canSeeProperty(user, row.payload || {})))
+    .map((row) => fetch(supabaseUrl(`${SUPABASE_TABLE}?id=eq.${encodeURIComponent(row.id)}`), {
+      method: "DELETE",
+      headers: supabaseHeaders(),
+    })));
+
+  if (rows.length) {
+    const upsertResponse = await fetch(supabaseUrl(SUPABASE_TABLE), {
+      method: "POST",
+      headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates" }),
+      body: JSON.stringify(rows),
+    });
+    if (!upsertResponse.ok) {
+      sendJson(res, upsertResponse.status, { error: await upsertResponse.text() });
+      return;
+    }
+  }
+  sendJson(res, 200, { configured: true, saved: true, count: rows.length });
+}
+
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
 }
 
 async function handleScrape(req, res) {
@@ -108,7 +338,7 @@ async function handleOpenRouter(req, res) {
   const body = await readBody(req);
   const { apiKey, model, messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
   const effectiveApiKey = apiKey || process.env.OPENROUTER_API_KEY;
-  const effectiveModel = model || process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free";
+  const effectiveModel = model || process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
   if (!effectiveApiKey) {
     sendJson(res, 401, { error: "Falta API key de OpenRouter." });
     return;
@@ -119,31 +349,64 @@ async function handleOpenRouter(req, res) {
   }
 
   const payload = {
-    model: effectiveModel,
     messages,
     temperature,
   };
   if (responseFormat) payload.response_format = { type: "json_object" };
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${effectiveApiKey}`,
-      "HTTP-Referer": req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
-      "X-Title": "Owner Direct Demo",
-    },
-    body: JSON.stringify(payload),
-  });
+  const models = unique([
+    effectiveModel,
+    ...(process.env.OPENROUTER_FALLBACK_MODELS || "google/gemini-2.0-flash-exp:free,qwen/qwen2.5-vl-72b-instruct:free,meta-llama/llama-3.2-11b-vision-instruct:free")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ]);
 
-  const text = await response.text();
-  res.writeHead(response.status, {
-    "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+  let lastResponse = null;
+  let lastText = "";
+  for (const candidate of models) {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${effectiveApiKey}`,
+        "HTTP-Referer": req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
+        "X-Title": "Owner Direct Demo",
+      },
+      body: JSON.stringify({ ...payload, model: candidate }),
+    });
+    const text = await response.text();
+    if (response.ok) {
+      res.writeHead(response.status, {
+        "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      });
+      res.end(text);
+      return;
+    }
+    lastResponse = response;
+    lastText = text;
+    if (![408, 429, 500, 502, 503, 504].includes(response.status)) break;
+  }
+
+  sendJson(res, lastResponse?.status || 502, {
+    error: humanOpenRouterError(lastResponse?.status, lastText),
+    raw: lastText,
   });
-  res.end(text);
+}
+
+function humanOpenRouterError(status, text = "") {
+  if (status === 429) return "El modelo gratuito está temporalmente limitado. Probá de nuevo en unos minutos o configurá otro modelo/fallback en OpenRouter.";
+  if (status === 401) return "La API key de OpenRouter no es válida o no está configurada.";
+  if (status === 402) return "OpenRouter requiere crédito o un proveedor habilitado para este modelo.";
+  if (status >= 500) return "El proveedor de IA respondió con error temporal.";
+  try {
+    return JSON.parse(text).error?.message || `OpenRouter respondió ${status}.`;
+  } catch {
+    return text.slice(0, 220) || `OpenRouter respondió ${status}.`;
+  }
 }
 
 function readBody(req) {
@@ -360,15 +623,36 @@ function extractImageUrls(html) {
 }
 
 function filterPropertyPhotos(urls) {
-  const bad = /logo|avatar|profile|perfil|mapa|map|staticmap|icon|sprite|placeholder|blank|default|favicon|watermark|marker|pin|agency|agencia|banner|facebook|instagram|whatsapp|youtube|google/i;
+  const bad = /logo|avatar|profile|perfil|mapa|map|staticmap|icon|sprite|placeholder|blank|default|favicon|watermark|marker|pin|agency|agencia|banner|facebook|instagram|whatsapp|youtube|google|apple|appstore|app-store|playstore|googleplay|google-play|store|disponible|available|download|descarga|flag|flags|bandera|country|countries|pais|pa[ií]s|search|lupa|magnif|qr|badge|award|medal/i;
   const goodHost = /infocasas|mercadolibre|mlstatic|cloudfront|cdn|img|image|photos|fotos|static/i;
+  const seen = new Set();
   return unique(urls)
     .map((url) => url.replace(/&amp;/g, "&"))
     .filter((url) => /^https?:\/\//i.test(url))
     .filter((url) => /\.(jpe?g|png|webp)(\?|$)/i.test(url))
     .filter((url) => !bad.test(url))
     .filter((url) => goodHost.test(url) || /\/(properties|inmuebles|fotos|photos|uploads|items)\//i.test(url))
-    .filter((url) => !/(\b16x16\b|\b32x32\b|\b48x48\b|\b64x64\b|\b80x80\b|\b100x100\b)/i.test(url));
+    .filter((url) => !/(\b16x16\b|\b32x32\b|\b48x48\b|\b64x64\b|\b80x80\b|\b100x100\b|\b150x150\b|\b200x200\b)/i.test(url))
+    .filter((url) => {
+      const key = photoDedupeKey(url);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function photoDedupeKey(url) {
+  try {
+    const parsed = new URL(url);
+    const filename = parsed.pathname.split("/").pop() || parsed.pathname;
+    return filename
+      .toLowerCase()
+      .replace(/[_-](small|thumb|thumbnail|medium|large|original|webp|jpg|jpeg|png)/g, "")
+      .replace(/[_-]?\d{2,4}x\d{2,4}/g, "")
+      .replace(/\.(jpe?g|png|webp)$/i, "");
+  } catch {
+    return url.toLowerCase().split("?")[0];
+  }
 }
 
 function stripTags(html) {

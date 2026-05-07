@@ -1,6 +1,8 @@
 const STORAGE_KEY = "od-demo-state-v1";
 const SETTINGS_KEY = "od-demo-settings-v1";
+const AUTH_KEY = "od-demo-auth-v1";
 const LOCAL_API_BASE = "http://127.0.0.1:4173";
+const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
 
 const defaultState = {
   selectedId: "demo-casa-i08",
@@ -8,6 +10,8 @@ const defaultState = {
   draftProperty: null,
   clientView: "list",
   editorTab: "data",
+  aiSearchIds: null,
+  aiSearchExplanation: "",
   chatMessages: [
     {
       role: "assistant",
@@ -64,7 +68,11 @@ const defaultState = {
 
 let state = loadState();
 let settings = loadSettings();
+let authSession = loadAuthSession();
 let serverConfig = {};
+let remoteSaveTimer = null;
+let loadingRemote = false;
+let aiSearchImageDataUrl = "";
 let leafletMap = null;
 let leafletMarkerLayer = null;
 
@@ -87,6 +95,8 @@ function migrateState(nextState) {
   nextState.properties = nextState.properties || [];
   nextState.clientView ||= "list";
   nextState.editorTab ||= "data";
+  nextState.aiSearchIds ??= null;
+  nextState.aiSearchExplanation ??= "";
   nextState.editorMode ||= "edit";
   if (nextState.draftProperty) ensurePropertyDefaults(nextState.draftProperty);
   nextState.properties.forEach((property) => ensurePropertyDefaults(property));
@@ -95,6 +105,8 @@ function migrateState(nextState) {
 }
 
 function ensurePropertyDefaults(property) {
+  property.ownerId ??= "";
+  property.ownerEmail ??= "";
   property.address ??= "";
   property.lat ??= "";
   property.lng ??= "";
@@ -108,6 +120,7 @@ function ensurePropertyDefaults(property) {
   property.documents ??= [];
   property.extras ??= [];
   property.report ??= null;
+  property.scrapeReview ??= null;
   property.chatMessages ??= null;
   property.rooms ??= [];
   property.photos ??= [];
@@ -117,14 +130,70 @@ function ensurePropertyDefaults(property) {
 
 function loadSettings() {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    const next = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    if (!next.model || next.model.includes("gpt-oss")) next.model = DEFAULT_MODEL;
+    if (!next.planModel || next.planModel.includes("gpt-oss")) next.planModel = next.model;
+    return next;
   } catch {
-    return {};
+    return { model: DEFAULT_MODEL, planModel: DEFAULT_MODEL };
   }
+}
+
+function loadAuthSession() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthSession(session) {
+  authSession = session;
+  if (session) localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+  else localStorage.removeItem(AUTH_KEY);
+}
+
+function currentUser() {
+  return authSession?.user || null;
+}
+
+function currentRole() {
+  return currentUser()?.role || "anonymous";
+}
+
+function canManageProperties() {
+  return ["admin", "vendedor"].includes(currentRole());
+}
+
+function canAccessView(view) {
+  if (view === "marketplace") return true;
+  if (view === "settings") return currentRole() === "admin";
+  return canManageProperties();
+}
+
+function propertyOwnedByCurrentUser(property) {
+  const user = currentUser();
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  return property.ownerId === user.id || property.ownerEmail === user.email;
+}
+
+function backofficeProperties() {
+  if (currentRole() === "admin") return state.properties;
+  if (currentRole() === "vendedor") return state.properties.filter(propertyOwnedByCurrentUser);
+  return [];
+}
+
+function authHeaders(extra = {}) {
+  return {
+    ...extra,
+    ...(authSession?.access_token ? { Authorization: `Bearer ${authSession.access_token}` } : {}),
+  };
 }
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  scheduleRemoteSave();
 }
 
 function saveSettings() {
@@ -147,6 +216,10 @@ function uid(prefix) {
 }
 
 function setView(view) {
+  if (!canAccessView(view)) {
+    view = "marketplace";
+    state.editorMode = "edit";
+  }
   $$(".view").forEach((element) => element.classList.remove("active"));
   $$(".nav-btn").forEach((element) => element.classList.toggle("active", element.dataset.view === view));
   $(`#view-${view}`).classList.add("active");
@@ -156,7 +229,7 @@ function setView(view) {
     editor: "Cargar propiedad",
     settings: "OpenRouter",
   }[view];
-  $("#newPropertyBtn").classList.toggle("hidden", view === "marketplace");
+  $("#newPropertyBtn").classList.toggle("hidden", view === "marketplace" || !canManageProperties());
   $("#chatBubbleBtn").classList.toggle("hidden", view !== "marketplace");
   if (view !== "marketplace") $("#chatWidget").classList.add("hidden");
   renderAll();
@@ -214,6 +287,7 @@ function statusText(status) {
 }
 
 function renderAll() {
+  renderAuth();
   renderSettings();
   renderMarketplace();
   renderProperties();
@@ -229,10 +303,55 @@ function renderAll() {
   renderActivePropertySelectors();
 }
 
+function renderAuth() {
+  const user = currentUser();
+  const roleLabel = {
+    admin: "Admin",
+    vendedor: "Vendedor",
+    user: "Cliente",
+    anonymous: "Visitante",
+  }[currentRole()] || "Visitante";
+  const status = $("#authStatus");
+  if (status) status.textContent = user ? `${roleLabel}: ${user.email}` : "Portal público";
+  $("#loginBtn")?.classList.toggle("hidden", Boolean(user));
+  $("#logoutBtn")?.classList.toggle("hidden", !user);
+  $$(".nav-btn").forEach((button) => {
+    button.classList.toggle("hidden", !canAccessView(button.dataset.view));
+  });
+  $("#newPropertyBtn")?.classList.toggle("hidden", !canManageProperties() || $("#view-marketplace")?.classList.contains("active"));
+  const sidebarText = $("#storageModeText");
+  if (sidebarText) {
+    sidebarText.textContent = serverConfig.supabaseConfigured
+      ? "Las propiedades se sincronizan con Supabase por usuario."
+      : "Modo demo local: login y propiedades viven en este navegador.";
+  }
+}
+
+async function loginWithCredentials(email, password) {
+  const response = await fetch(apiUrl("/api/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "No se pudo iniciar sesión.");
+  saveAuthSession(data);
+  await loadRemoteProperties();
+  renderAll();
+}
+
+async function logout() {
+  saveAuthSession(null);
+  state.editorMode = "edit";
+  state.draftProperty = null;
+  if (serverConfig.supabaseConfigured) await loadRemoteProperties();
+  setView("marketplace");
+}
+
 function renderSettings() {
   $("#apiKeyInput").value = settings.apiKey || "";
-  $("#modelInput").value = settings.model || serverConfig.defaultModel || "openai/gpt-oss-120b:free";
-  $("#planModelInput").value = settings.planModel || settings.model || serverConfig.defaultModel || "openai/gpt-oss-120b:free";
+  $("#modelInput").value = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+  $("#planModelInput").value = settings.planModel || settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
   const configured = Boolean(settings.apiKey || serverConfig.openRouterConfigured);
   $("#aiStatus").textContent = configured ? (settings.apiKey ? "OpenRouter configurado" : "OpenRouter en servidor") : "OpenRouter sin configurar";
   $("#aiStatus").className = configured ? "status-pill" : "status-pill warn";
@@ -249,14 +368,75 @@ async function loadServerConfig() {
   } catch {
     serverConfig = {};
   }
+  await validateAuthSession();
   renderSettings();
+  await loadRemoteProperties();
+}
+
+async function validateAuthSession() {
+  if (!authSession?.access_token || !serverConfig.authConfigured) return;
+  try {
+    const response = await fetch(apiUrl("/api/auth/me"), { headers: authHeaders() });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.user) saveAuthSession(null);
+    else saveAuthSession({ ...authSession, user: data.user });
+  } catch {
+    saveAuthSession(null);
+  }
+}
+
+async function loadRemoteProperties() {
+  if (!serverConfig.supabaseConfigured) return;
+  loadingRemote = true;
+  try {
+    const response = await fetch(apiUrl("/api/properties"), { headers: authHeaders() });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    if (Array.isArray(data.properties) && data.properties.length) {
+      state.properties = data.properties;
+      state.properties.forEach(ensurePropertyDefaults);
+      state.selectedId = state.properties[0]?.id || state.selectedId;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderAll();
+    } else if (state.properties.length && canManageProperties()) {
+      await syncRemoteProperties();
+    }
+  } catch (error) {
+    console.warn("No se pudo cargar Supabase", error);
+  } finally {
+    loadingRemote = false;
+  }
+}
+
+function scheduleRemoteSave() {
+  if (!serverConfig.supabaseConfigured || loadingRemote || !canManageProperties()) return;
+  clearTimeout(remoteSaveTimer);
+  remoteSaveTimer = setTimeout(syncRemoteProperties, 650);
+}
+
+async function syncRemoteProperties() {
+  if (!serverConfig.supabaseConfigured || !canManageProperties()) return;
+  try {
+    await fetch(apiUrl("/api/properties"), {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ properties: manageablePropertiesForSync() }),
+    });
+  } catch (error) {
+    console.warn("No se pudo guardar en Supabase", error);
+  }
+}
+
+function manageablePropertiesForSync() {
+  if (currentRole() === "admin") return state.properties;
+  return state.properties.filter(propertyOwnedByCurrentUser);
 }
 
 function renderProperties() {
   const grid = $("#propertyGrid");
   const query = $("#searchInput").value.trim().toLowerCase();
   const status = $("#statusFilter").value;
-  const properties = state.properties.filter((property) => {
+  const properties = backofficeProperties().filter((property) => {
     const haystack = `${property.title} ${property.neighborhood} ${property.city}`.toLowerCase();
     return haystack.includes(query) && (status === "all" || property.status === status);
   });
@@ -321,16 +501,15 @@ function clientFilteredProperties() {
   const type = $("#clientTypeFilter")?.value || "all";
   const maxPrice = Number($("#clientMaxPriceInput")?.value || 0);
   const minBedrooms = Number($("#clientBedroomsFilter")?.value || 0);
-  const source = state.properties.some((property) => property.status === "published")
-    ? state.properties.filter((property) => property.status === "published")
-    : state.properties;
+  const source = state.properties.filter((property) => property.status === "published");
   return source.filter((property) => {
     ensurePropertyDefaults(property);
     const haystack = `${property.title} ${property.neighborhood} ${property.city} ${property.description}`.toLowerCase();
     return haystack.includes(query)
       && (type === "all" || property.type === type)
       && (!maxPrice || Number(property.price || 0) <= maxPrice)
-      && (Number(property.bedrooms || 0) >= minBedrooms);
+      && (Number(property.bedrooms || 0) >= minBedrooms)
+      && (!state.aiSearchIds || state.aiSearchIds.includes(property.id));
   });
 }
 
@@ -342,6 +521,11 @@ function renderMarketplace() {
   $("#clientMapPane").classList.toggle("hidden", state.clientView !== "map");
   $$("[data-client-view]").forEach((button) => button.classList.toggle("active", button.dataset.clientView === state.clientView));
   const properties = clientFilteredProperties();
+  const aiOutput = $("#aiSearchOutput");
+  if (aiOutput) {
+    aiOutput.classList.toggle("hidden", !state.aiSearchExplanation);
+    aiOutput.innerHTML = state.aiSearchExplanation ? `<strong>Búsqueda IA activa.</strong><br>${escapeHtml(state.aiSearchExplanation)}` : "";
+  }
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
   grid.innerHTML = "";
 
@@ -395,7 +579,8 @@ function renderActivePropertySelectors() {
     const select = $(selector);
     if (!select) return;
     const draftOption = state.editorMode === "create" ? `<option value="__draft">Nueva propiedad sin guardar</option>` : "";
-    select.innerHTML = draftOption + state.properties.map((property) => `<option value="${property.id}">${escapeHtml(property.title || "Propiedad sin titulo")} · ${escapeHtml(property.neighborhood || "sin barrio")}</option>`).join("");
+    const editable = backofficeProperties();
+    select.innerHTML = draftOption + editable.map((property) => `<option value="${property.id}">${escapeHtml(property.title || "Propiedad sin titulo")} · ${escapeHtml(property.neighborhood || "sin barrio")}</option>`).join("");
     select.value = state.editorMode === "create" ? "__draft" : state.selectedId;
   });
 }
@@ -994,19 +1179,33 @@ async function callOpenRouter({ model, messages, temperature = 0.2 }) {
     },
     body: JSON.stringify({
       apiKey: settings.apiKey || "",
-      model: model || settings.model || serverConfig.defaultModel || "openai/gpt-oss-120b:free",
+      model: model || settings.model || serverConfig.defaultModel || DEFAULT_MODEL,
       temperature,
       messages,
     }),
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`OpenRouter respondio ${response.status}: ${text}`);
+    throw new Error(humanAiError(response.status, text));
   }
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter no devolvio contenido.");
   return JSON.parse(content);
+}
+
+function humanAiError(status, text = "") {
+  try {
+    const data = JSON.parse(text);
+    if (data.error && typeof data.error === "string") return data.error;
+    if (data.error?.message) return data.error.message;
+  } catch {
+    // keep fallback below
+  }
+  if (status === 429) return "El modelo gratuito está temporalmente limitado. Probá de nuevo en unos minutos.";
+  if (status === 401) return "La API key de OpenRouter no está configurada o no es válida.";
+  if (status >= 500) return "El proveedor de IA tuvo un error temporal.";
+  return `OpenRouter respondió ${status}.`;
 }
 
 function propertyPrompt(property) {
@@ -1057,7 +1256,7 @@ function photoSrc(photo) {
 
 function modelSupportsVision(model = "") {
   const value = model.toLowerCase();
-  return ["gpt-4o", "o4", "vision", "claude", "gemini", "qwen-vl", "llava"].some((token) => value.includes(token));
+  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava"].some((token) => value.includes(token));
 }
 
 async function runPhotoAnalysis() {
@@ -1070,7 +1269,7 @@ async function runPhotoAnalysis() {
   $("#runAiBtn").textContent = "Analizando fotos...";
   try {
     const limitedPhotos = property.photos.slice(0, 8);
-    const chosenModel = settings.model || "openai/gpt-oss-120b:free";
+    const chosenModel = settings.model || DEFAULT_MODEL;
     const canSeeImages = modelSupportsVision(chosenModel);
     const promptText = `Analiza esta propiedad owner-direct y calcula un score tecnico-comercial de 0 a 10 usando datos cargados ${canSeeImages ? "y fotos." : "y metadata de fotos. El modelo configurado no esta marcado como vision, por lo que este es un score basico sin inspeccion visual directa."}
 
@@ -1130,7 +1329,7 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
 async function runPlanAnalysis() {
   const property = selectedProperty();
   const imagePlans = property.plans.filter((plan) => plan.dataUrl?.startsWith("data:image"));
-  const chosenModel = settings.planModel || settings.model || "openai/gpt-oss-120b:free";
+  const chosenModel = settings.planModel || settings.model || DEFAULT_MODEL;
   if (!modelSupportsVision(chosenModel)) {
     alert("El analisis de planos necesita un modelo con vision. Para esta demo cambia el modelo de planos a uno con vision, por ejemplo openai/gpt-4o-mini, o usa ajuste manual.");
     return;
@@ -1215,6 +1414,10 @@ function addProperty() {
 }
 
 function startCreateProperty() {
+  if (!canManageProperties()) {
+    setView("marketplace");
+    return;
+  }
   state.editorMode = "create";
   state.draftProperty = createBlankProperty("__draft");
   state.editorTab = "data";
@@ -1223,8 +1426,11 @@ function startCreateProperty() {
 }
 
 function createBlankProperty(id = uid("property")) {
+  const user = currentUser();
   return {
     id,
+    ownerId: user?.id || "",
+    ownerEmail: user?.email || "",
     title: "",
     type: "Casa",
     status: "draft",
@@ -1268,6 +1474,9 @@ function createBlankProperty(id = uid("property")) {
 function saveDraftProperty() {
   const draft = structuredClone(state.draftProperty || createBlankProperty());
   draft.id = uid("property");
+  const user = currentUser();
+  draft.ownerId = draft.ownerId || user?.id || "";
+  draft.ownerEmail = draft.ownerEmail || user?.email || "";
   draft.title = draft.title || "Nueva propiedad owner-direct";
   ensurePropertyDefaults(draft);
   state.properties.unshift(draft);
@@ -1282,7 +1491,10 @@ function saveDraftProperty() {
 function duplicateProperty() {
   const current = selectedProperty();
   const copy = structuredClone(current);
+  const user = currentUser();
   copy.id = uid("property");
+  copy.ownerId = user?.id || copy.ownerId || "";
+  copy.ownerEmail = user?.email || copy.ownerEmail || "";
   copy.title = `${copy.title || "Propiedad"} copia`;
   copy.status = "draft";
   copy.score = null;
@@ -1337,14 +1549,19 @@ async function runScrape() {
     });
     if (!response.ok) throw new Error(await response.text());
     const scraped = await response.json();
+    $("#scrapeOutput").textContent = "Datos scrapeados. Guardando fotos y atributos...";
     applyScrapedData(scraped);
+    $("#scrapeOutput").textContent = "Filtrando fotos importadas automáticamente...";
     const filterReport = await filterImportedPhotos({ silent: true });
     const property = selectedProperty();
+    $("#scrapeOutput").textContent = "Validando coherencia con IA...";
+    const review = await validateScrapedProperty(property);
     const missing = missingFields(property);
     $("#scrapeOutput").innerHTML = `
       <strong>Importación lista desde ${escapeHtml(scraped.platform || "link externo")}.</strong><br>
       Se cargaron título, descripción, precio, ubicación, atributos, ${scraped.photos?.length || 0} fotos y ${scraped.videos?.length || 0} videos detectados.
       ${filterReport ? `<br>${escapeHtml(filterReport)}` : ""}
+      ${review ? `<br><br><strong>Chequeo IA/coherencia:</strong><br>${escapeHtml(review)}` : ""}
       ${missing.length ? `<br><br><strong>Faltantes para pedir al propietario:</strong><br>${missing.map((item) => `- ${escapeHtml(item)}`).join("<br>")}` : "<br><br>La ficha básica quedó completa."}
     `;
     renderAll();
@@ -1382,9 +1599,88 @@ function preparePropertyForScrape(url) {
   }
 }
 
+async function validateScrapedProperty(property) {
+  const local = localScrapeReview(property);
+  const hasAi = Boolean(settings.apiKey || serverConfig.openRouterConfigured);
+  if (!hasAi) {
+    property.scrapeReview = local;
+    saveState();
+    return `Chequeo automático local: ${local.summary}`;
+  }
+  try {
+    const chosenModel = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+    const canSeeImages = modelSupportsVision(chosenModel);
+    const photos = property.photos.slice(0, 12);
+    const prompt = `Revisá una ficha scrapeada para una plataforma owner-direct en Uruguay. Validá coherencia de precio, m² edificados, m² terreno, dormitorios, baños, barrio, fotos y descripciones. Si podés, segmentá fotos por ambiente. Devuelve JSON válido:
+{
+  "coherence_score": number,
+  "summary": string,
+  "warnings": string[],
+  "suggested_corrections": [{"field": string, "value": string, "reason": string}],
+  "photo_room_segments": [{"photo_name": string, "room_name": string, "room_type": string}],
+  "remove_photo_names": string[]
+}
+
+Datos:
+${JSON.stringify(propertyPrompt(property), null, 2)}
+
+Chequeo local:
+${JSON.stringify(local, null, 2)}`;
+    const content = canSeeImages ? [
+      { type: "text", text: prompt },
+      ...photos.map((photo) => ({ type: "image_url", image_url: { url: photoSrc(photo) } })),
+    ] : prompt;
+    const result = await callOpenRouter({
+      model: chosenModel,
+      messages: [{ role: "user", content }],
+      temperature: 0.1,
+    });
+    applyScrapeReview(property, result);
+    saveState();
+    return `${canSeeImages ? "IA visual" : "IA metadata"}: ${result.summary || "Ficha revisada."}${Array.isArray(result.warnings) && result.warnings.length ? ` Alertas: ${result.warnings.join("; ")}` : ""}`;
+  } catch (error) {
+    property.scrapeReview = local;
+    saveState();
+    return `Chequeo local por fallback: ${local.summary} IA no disponible temporalmente.`;
+  }
+}
+
+function localScrapeReview(property) {
+  const warnings = [];
+  const built = builtAreaForValue(property);
+  if (!property.price) warnings.push("Falta precio.");
+  if (!built) warnings.push("Faltan m² edificados/área privada para calcular USD/m².");
+  if (Number(property.landArea || 0) && built && Number(property.landArea) < built) warnings.push("El terreno figura menor que el área edificada.");
+  if (!property.bedrooms) warnings.push("Faltan dormitorios.");
+  if (!property.bathrooms) warnings.push("Faltan baños.");
+  if (property.photos.length < 8) warnings.push("Pocas fotos para una publicación completa.");
+  return {
+    coherence_score: Math.max(0, 10 - warnings.length * 1.2),
+    summary: warnings.length ? warnings.join(" ") : "Datos básicos coherentes.",
+    warnings,
+  };
+}
+
+function applyScrapeReview(property, review) {
+  property.scrapeReview = review;
+  const remove = new Set((review.remove_photo_names || []).map((name) => normalizeText(name)));
+  if (remove.size) property.photos = property.photos.filter((photo) => !remove.has(normalizeText(photo.name)));
+  (review.photo_room_segments || []).forEach((segment) => {
+    const photo = property.photos.find((item) => normalizeText(item.name) === normalizeText(segment.photo_name));
+    if (!photo) return;
+    let roomItem = property.rooms.find((item) => normalizeText(item.name) === normalizeText(segment.room_name));
+    if (!roomItem) {
+      roomItem = room(uid("room-ai"), segment.room_name || segment.room_type || "Ambiente detectado", normalizeRoomType(segment.room_type), "Sin planta", "", "Sugerido por IA desde fotos scrapeadas");
+      roomItem.confirmed = false;
+      property.rooms.push(roomItem);
+    }
+    photo.roomId = roomItem.id;
+  });
+}
+
 async function testAiConnection() {
   settings.apiKey = $("#apiKeyInput").value.trim();
-  settings.model = $("#modelInput").value.trim() || "openai/gpt-oss-120b:free";
+  settings.model = $("#modelInput").value.trim() || DEFAULT_MODEL;
   settings.planModel = $("#planModelInput").value.trim() || settings.model;
   saveSettings();
 
@@ -1424,7 +1720,7 @@ async function sendChatMessage(text) {
   submit.textContent = "Pensando...";
   try {
     const result = await callOpenRouter({
-      model: settings.model || "openai/gpt-oss-120b:free",
+      model: settings.model || DEFAULT_MODEL,
       messages: [
         {
           role: "system",
@@ -1479,6 +1775,111 @@ function formatAssistantAnswer(result) {
     parts.push(`Para afinar:\n${result.follow_up_questions.map((item) => `- ${item}`).join("\n")}`);
   }
   return parts.filter(Boolean).join("\n\n");
+}
+
+async function runAiPropertySearch() {
+  const query = $("#aiSearchInput").value.trim();
+  if (!query && !aiSearchImageDataUrl) return;
+  $("#aiSearchBtn").disabled = true;
+  $("#aiSearchBtn").textContent = "Buscando...";
+  try {
+    const source = state.properties.filter((property) => property.status === "published");
+    const summaries = source.map((property) => ({
+      id: property.id,
+      title: property.title,
+      type: property.type,
+      neighborhood: property.neighborhood,
+      city: property.city,
+      price_usd: property.price,
+      bedrooms: property.bedrooms,
+      bathrooms: property.bathrooms,
+      built_m2: builtAreaForValue(property),
+      usd_m2: pricePerM2(property),
+      description: property.description,
+      score: property.score,
+      cover_photo_name: property.photos[0]?.name || null,
+      cover_photo_url: photoSrc(property.photos[0]) || null,
+      photo_count: property.photos.length,
+      extras: property.extras,
+    }));
+    const model = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+    const visualCandidates = source
+      .filter((property) => photoSrc(property.photos[0]))
+      .slice(0, 10)
+      .map((property) => ({ id: property.id, title: property.title, image: photoSrc(property.photos[0]) }));
+    const prompt = `Sos un buscador inmobiliario IA para Uruguay. Tenés que filtrar propiedades reales para el portal cliente.
+
+Reglas:
+- Devolvé SOLO IDs de propiedades existentes.
+- Si la búsqueda tiene texto, interpretá intención, zona, precio, tipo, dormitorios, estilo y amenities.
+- Si hay imagen de referencia, compará estilo visual, tipo de ambiente, luminosidad, terraza/vista/pileta/fachada/materiales con las fotos candidatas.
+- Si ninguna propiedad sirve, devolvé matching_ids vacío.
+- Ordená matching_ids de mejor a peor.
+
+Devuelve JSON válido:
+{
+  "matching_ids": string[],
+  "explanation": string,
+  "visual_matches": [{"id": string, "reason": string}],
+  "suggested_filters": {"max_price": number|null, "min_bedrooms": number|null, "type": string|null}
+}
+
+Búsqueda textual: ${query || "(sin texto, usar imagen)"}
+
+Propiedades:
+${JSON.stringify(summaries, null, 2)}
+
+Fotos candidatas incluidas en este mensaje, en orden:
+${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: item.id, title: item.title })), null, 2)}`;
+    const content = (aiSearchImageDataUrl || visualCandidates.length) && modelSupportsVision(model)
+      ? [
+        { type: "text", text: prompt },
+        ...(aiSearchImageDataUrl ? [{ type: "text", text: "Imagen de referencia del comprador:" }, { type: "image_url", image_url: { url: aiSearchImageDataUrl } }] : []),
+        ...visualCandidates.flatMap((item, index) => [
+          { type: "text", text: `Foto candidata ${index + 1}. property_id=${item.id}` },
+          { type: "image_url", image_url: { url: item.image } },
+        ]),
+      ]
+      : prompt;
+    const result = await callOpenRouter({
+      model,
+      messages: [{ role: "user", content }],
+    });
+    const validIds = new Set(source.map((property) => property.id));
+    state.aiSearchIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
+    state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
+    saveState();
+    renderMarketplace();
+  } catch (error) {
+    const fallback = query.toLowerCase();
+    state.aiSearchIds = state.properties
+      .filter((property) => `${property.title} ${property.neighborhood} ${property.city} ${property.description} ${JSON.stringify(property.extras || [])}`.toLowerCase().includes(fallback))
+      .map((property) => property.id);
+    state.aiSearchExplanation = `No pude usar IA (${error.message}). Apliqué búsqueda textual sobre las fichas.`;
+    saveState();
+    renderMarketplace();
+  } finally {
+    $("#aiSearchBtn").disabled = false;
+    $("#aiSearchBtn").textContent = "Buscar con IA";
+  }
+}
+
+function clearAiSearch() {
+  state.aiSearchIds = null;
+  state.aiSearchExplanation = "";
+  aiSearchImageDataUrl = "";
+  $("#aiSearchInput").value = "";
+  $("#aiSearchImageInput").value = "";
+  renderAiSearchPreview();
+  saveState();
+  renderMarketplace();
+}
+
+function renderAiSearchPreview() {
+  const preview = $("#aiSearchImagePreview");
+  if (!preview) return;
+  preview.classList.toggle("hidden", !aiSearchImageDataUrl);
+  preview.innerHTML = aiSearchImageDataUrl ? `<img src="${aiSearchImageDataUrl}" alt=""><span>Imagen usada como referencia visual</span>` : "";
 }
 
 function deletePhotosByIds(ids) {
@@ -1542,7 +1943,8 @@ function applyScrapedData(scraped) {
 
   property.photos = property.photos.filter((photo) => !photo.source || photo.source === "manual");
   const existingUrls = new Set(property.photos.map((photo) => photo.url || photo.dataUrl));
-  (scraped.photos || []).slice(0, 80).forEach((url, index) => {
+  const importedUrls = dedupePropertyPhotoUrls((scraped.photos || []).filter((url) => looksLikePropertyPhoto({ url, name: url }))).slice(0, 80);
+  importedUrls.forEach((url, index) => {
     if (existingUrls.has(url)) return;
     property.photos.push({
       id: uid("photo-url"),
@@ -1560,6 +1962,29 @@ function applyScrapedData(scraped) {
 
 function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean).map(String))];
+}
+
+function dedupePropertyPhotoUrls(urls) {
+  const seen = new Set();
+  return urls.filter((url) => {
+    const key = photoDedupeKey(url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function photoDedupeKey(url = "") {
+  try {
+    const parsed = new URL(url);
+    return (parsed.pathname.split("/").pop() || parsed.pathname)
+      .toLowerCase()
+      .replace(/[_-](small|thumb|thumbnail|medium|large|original|webp|jpg|jpeg|png)/g, "")
+      .replace(/[_-]?\d{2,4}x\d{2,4}/g, "")
+      .replace(/\.(jpe?g|png|webp)$/i, "");
+  } catch {
+    return String(url).toLowerCase().split("?")[0];
+  }
 }
 
 function mergeExtras(current, incoming) {
@@ -1580,11 +2005,13 @@ async function filterImportedPhotos({ silent = false } = {}) {
 
   let removeIds = [];
   let mode = "limpieza basica";
+  removeIds = imported.filter((photo) => !looksLikePropertyPhoto(photo)).map((photo) => photo.id);
 
-  if (settings.apiKey && modelSupportsVision(settings.model || "")) {
-    mode = "IA vision";
+  const modelForPhotos = settings.model || serverConfig.defaultModel || "";
+  if ((settings.apiKey || serverConfig.openRouterConfigured) && modelSupportsVision(modelForPhotos)) {
+    mode = "limpieza basica + IA vision";
     try {
-      const candidates = imported.slice(0, 18);
+      const candidates = imported.filter((photo) => !removeIds.includes(photo.id)).slice(0, 24);
       const content = [
         {
           type: "text",
@@ -1606,20 +2033,25 @@ ${JSON.stringify(candidates.map((photo) => ({ id: photo.id, name: photo.name, ur
         })),
       ];
       const result = await callOpenRouter({
-        model: settings.model,
+        model: modelForPhotos,
         messages: [{ role: "user", content }],
       });
-      removeIds = Array.isArray(result.remove_photo_ids) ? result.remove_photo_ids : [];
+      removeIds = uniqueStrings([...removeIds, ...(Array.isArray(result.remove_photo_ids) ? result.remove_photo_ids : [])]);
     } catch (error) {
       mode = "limpieza basica por fallo IA";
-      removeIds = imported.filter((photo) => !looksLikePropertyPhoto(photo)).map((photo) => photo.id);
     }
-  } else {
-    removeIds = imported.filter((photo) => !looksLikePropertyPhoto(photo)).map((photo) => photo.id);
   }
 
   const before = property.photos.length;
-  property.photos = property.photos.filter((photo) => !removeIds.includes(photo.id));
+  const seen = new Set();
+  property.photos = property.photos.filter((photo) => {
+    if (removeIds.includes(photo.id)) return false;
+    if (!photo.source || photo.source === "manual") return true;
+    const key = photoDedupeKey(photo.url || photo.dataUrl || photo.name);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   saveState();
   renderAll();
   const removed = before - property.photos.length;
@@ -1630,8 +2062,14 @@ ${JSON.stringify(candidates.map((photo) => ({ id: photo.id, name: photo.name, ur
 
 function looksLikePropertyPhoto(photo) {
   const value = `${photo.name || ""} ${photo.url || ""}`.toLowerCase();
-  const bad = ["logo", "avatar", "profile", "perfil", "map", "mapa", "staticmap", "icon", "sprite", "placeholder", "blank", "default", "favicon", "watermark", "marker", "pin", "agency", "agencia"];
+  const bad = [
+    "logo", "avatar", "profile", "perfil", "map", "mapa", "staticmap", "icon", "sprite", "placeholder", "blank", "default", "favicon",
+    "marker", "pin", "agency", "agencia", "banner", "facebook", "instagram", "whatsapp", "youtube", "google", "apple", "appstore",
+    "app-store", "playstore", "googleplay", "google-play", "store", "disponible", "available", "download", "descarga", "flag", "flags",
+    "bandera", "country", "countries", "pais", "país", "search", "lupa", "magnif", "qr", "badge", "award", "medal",
+  ];
   if (bad.some((token) => value.includes(token))) return false;
+  if (/\b(16x16|32x32|48x48|64x64|80x80|100x100|150x150|200x200)\b/i.test(value)) return false;
   if (!/\.(jpe?g|png|webp)(\?|$)/i.test(value)) return false;
   return true;
 }
@@ -1643,7 +2081,7 @@ async function generateReport() {
   try {
     if (settings.apiKey || serverConfig.openRouterConfigured) {
       property.report = await callOpenRouter({
-        model: settings.model || "openai/gpt-oss-120b:free",
+        model: settings.model || DEFAULT_MODEL,
         messages: [{
           role: "user",
           content: `Genera un informe comercial-tecnico breve para esta propiedad owner-direct. Devuelve JSON valido:
@@ -1735,6 +2173,10 @@ function missingFields(property) {
 
 function bindEvents() {
   $$(".nav-btn").forEach((button) => button.addEventListener("click", () => {
+    if (!canAccessView(button.dataset.view)) {
+      setView("marketplace");
+      return;
+    }
     if (button.dataset.view === "editor") {
       startCreateProperty();
       return;
@@ -1745,6 +2187,24 @@ function bindEvents() {
   $("#sidebarToggle").addEventListener("click", () => {
     document.body.classList.toggle("sidebar-collapsed");
     localStorage.setItem("od-sidebar-collapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
+  });
+  $("#loginBtn").addEventListener("click", () => {
+    $("#loginOutput").classList.add("hidden");
+    $("#loginDialog").showModal();
+  });
+  $("#logoutBtn").addEventListener("click", logout);
+  $("#loginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const output = $("#loginOutput");
+    output.classList.remove("hidden");
+    output.textContent = "Ingresando...";
+    try {
+      await loginWithCredentials($("#loginEmailInput").value.trim(), $("#loginPasswordInput").value);
+      $("#loginDialog").close();
+      output.classList.add("hidden");
+    } catch (error) {
+      output.textContent = error.message;
+    }
   });
   $("#newPropertyBtn").addEventListener("click", addProperty);
   $("#duplicatePropertyBtn").addEventListener("click", duplicateProperty);
@@ -1791,6 +2251,22 @@ function bindEvents() {
     const element = $(selector);
     if (element) element.addEventListener("input", renderMarketplace);
     if (element) element.addEventListener("change", renderMarketplace);
+  });
+  $("#aiSearchBtn").addEventListener("click", runAiPropertySearch);
+  $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
+  $("#aiSearchInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runAiPropertySearch();
+  });
+  $("#aiSearchImageInput").addEventListener("change", async (event) => {
+    const [file] = event.target.files;
+    if (!file) {
+      aiSearchImageDataUrl = "";
+      renderAiSearchPreview();
+      return;
+    }
+    const [{ dataUrl }] = await filesToDataUrls([file]);
+    aiSearchImageDataUrl = dataUrl;
+    renderAiSearchPreview();
   });
   $$("[data-client-view]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1949,7 +2425,7 @@ function bindEvents() {
 
   $("#saveSettingsBtn").addEventListener("click", () => {
     settings.apiKey = $("#apiKeyInput").value.trim();
-    settings.model = $("#modelInput").value.trim() || "openai/gpt-oss-120b:free";
+    settings.model = $("#modelInput").value.trim() || DEFAULT_MODEL;
     settings.planModel = $("#planModelInput").value.trim() || settings.model;
     saveSettings();
   });

@@ -9,4 +9,16 @@ services:
       - key: NODE_VERSION
         value: 20
       - key: OPENROUTER_MODEL
-        value: openai/gpt-oss-120b:free
+        value: google/gemma-4-31b-it:free
+      - key: OPENROUTER_FALLBACK_MODELS
+        value: google/gemini-2.0-flash-exp:free,qwen/qwen2.5-vl-72b-instruct:free,meta-llama/llama-3.2-11b-vision-instruct:free
+      - key: SUPABASE_TABLE
+        value: properties
+      - key: SUPABASE_PROFILE_TABLE
+        value: profiles
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
