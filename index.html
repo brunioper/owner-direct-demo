@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Owner Direct Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">OD</div>
+        <div>
+          <strong>Owner Direct</strong>
+          <span>Venta directa verificada</span>
+        </div>
+      </div>
+      <button class="sidebar-toggle" id="sidebarToggle" title="Contraer menú">☰</button>
+
+      <nav class="nav">
+        <button class="nav-btn active" data-view="marketplace">Portal cliente</button>
+        <button class="nav-btn" data-view="properties">Backoffice</button>
+        <button class="nav-btn" data-view="editor">Cargar propiedad</button>
+        <button class="nav-btn" data-view="settings">OpenRouter</button>
+      </nav>
+
+      <div class="sidebar-card">
+        <span class="muted">Demo modular</span>
+        <strong>Fotos + datos + plano + score</strong>
+        <p>Los datos se guardan en este navegador con localStorage.</p>
+      </div>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Marketplace owner-direct</p>
+          <h1 id="pageTitle">Portal cliente</h1>
+        </div>
+        <div class="top-actions">
+          <span id="aiStatus" class="status-pill warn">OpenRouter sin configurar</span>
+          <button class="primary" id="newPropertyBtn">Nueva propiedad</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-marketplace">
+        <div class="client-layout">
+          <div>
+            <div class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Búsqueda del comprador</p>
+                  <h2>Propiedades publicadas</h2>
+                </div>
+                <div class="view-switch">
+                  <button class="active" data-client-view="list">Iconos</button>
+                  <button data-client-view="map">Mapa</button>
+                </div>
+              </div>
+              <div class="client-filters">
+                <input id="clientSearchInput" type="search" placeholder="Buscar zona, barrio o texto" />
+                <select id="clientTypeFilter">
+                  <option value="all">Todos los tipos</option>
+                  <option>Casa</option>
+                  <option>Apartamento</option>
+                  <option>Terreno</option>
+                  <option>Chacra</option>
+                  <option>Local</option>
+                </select>
+                <input id="clientMaxPriceInput" type="number" min="0" placeholder="Precio máximo USD" />
+                <select id="clientBedroomsFilter">
+                  <option value="0">Dormitorios</option>
+                  <option value="1">1+ dorm.</option>
+                  <option value="2">2+ dorm.</option>
+                  <option value="3">3+ dorm.</option>
+                  <option value="4">4+ dorm.</option>
+                </select>
+              </div>
+              <div id="clientListPane">
+                <div id="clientPropertyGrid" class="property-grid compact"></div>
+              </div>
+              <div id="clientMapPane" class="hidden">
+                <div id="mapCanvas" class="map-canvas"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <section class="view" id="view-properties">
+        <div class="toolbar">
+          <input id="searchInput" type="search" placeholder="Buscar por título, barrio o ciudad" />
+          <select id="statusFilter">
+            <option value="all">Todos los estados</option>
+            <option value="draft">Borrador</option>
+            <option value="review">En revisión</option>
+            <option value="published">Publicada</option>
+          </select>
+        </div>
+        <div class="property-grid" id="propertyGrid"></div>
+      </section>
+
+      <section class="view" id="view-editor">
+        <div class="active-property-bar">
+          <label>Propiedad activa
+            <select id="activePropertySelect"></select>
+          </label>
+          <button id="duplicatePropertyBtn">Duplicar</button>
+        </div>
+        <div class="editor-tabs">
+          <button class="active" data-editor-tab="data">Datos</button>
+          <button data-editor-tab="media">Fotos y planos</button>
+          <button data-editor-tab="costs">Costos</button>
+          <button data-editor-tab="analysis">Análisis e informe</button>
+        </div>
+        <div class="editor-layout">
+          <div data-editor-panel="data">
+            <div class="panel import-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Importación asistida</p>
+                  <h2>¿Está publicada en alguna plataforma?</h2>
+                </div>
+              </div>
+              <div class="import-choice">
+                <label class="choice-card">
+                  <input type="radio" name="publishedElsewhere" value="yes" />
+                  <span>Sí, tengo link de MercadoLibre / InfoCasas</span>
+                </label>
+                <label class="choice-card">
+                  <input type="radio" name="publishedElsewhere" value="no" checked />
+                  <span>No, cargar todo manual</span>
+                </label>
+              </div>
+              <div id="scrapeBox" class="scrape-box hidden">
+                <label>Link de la publicación
+                  <input id="scrapeUrlInput" type="url" placeholder="https://www.infocasas.com.uy/..." />
+                </label>
+                <button id="scrapeBtn" class="primary">Scrapear datos</button>
+              </div>
+              <div id="scrapeOutput" class="hint hidden"></div>
+            </div>
+
+            <form class="panel" id="propertyForm">
+              <div class="panel-head">
+              <div>
+                <p class="eyebrow">Ficha de carga</p>
+                <h2>Datos principales</h2>
+              </div>
+              <button type="submit" class="primary">Guardar ficha</button>
+              </div>
+
+              <div class="form-grid">
+              <label>Título comercial<input name="title" required /></label>
+              <label>Tipo
+                <select name="type">
+                  <option>Casa</option>
+                  <option>Apartamento</option>
+                  <option>Terreno</option>
+                  <option>Chacra</option>
+                  <option>Local</option>
+                </select>
+              </label>
+              <label>Estado
+                <select name="status">
+                  <option value="draft">Borrador</option>
+                  <option value="review">En revisión</option>
+                  <option value="published">Publicada</option>
+                </select>
+              </label>
+              <label>Precio USD<input name="price" type="number" min="0" /></label>
+              <label>Barrio<input name="neighborhood" /></label>
+              <label>Ciudad<input name="city" /></label>
+              <label>Dirección<input name="address" /></label>
+              <label>Coordenadas lat<input name="lat" type="number" step="0.0001" /></label>
+              <label>Coordenadas lng<input name="lng" type="number" step="0.0001" /></label>
+              <label>URL mapa / Google Maps<input name="mapUrl" type="url" placeholder="https://maps.google.com/..." /></label>
+              <label>Dormitorios<input name="bedrooms" type="number" min="0" /></label>
+              <label>Baños<input name="bathrooms" type="number" min="0" step="0.5" /></label>
+              <label>Suites<input name="suites" type="number" min="0" /></label>
+              <label>Cocheras<input name="parking" type="number" min="0" /></label>
+              <label>m² terreno<input name="landArea" type="number" min="0" /></label>
+              <label>m² cubiertos<input name="builtArea" type="number" min="0" /></label>
+              <label>m² semicubiertos<input name="semiArea" type="number" min="0" /></label>
+              <label>Año construcción<input name="yearBuilt" type="number" min="1800" /></label>
+              <label>Arquitecto / estudio<input name="architect" /></label>
+              <label>Gastos comunes USD<input name="commonFees" type="number" min="0" /></label>
+            </div>
+
+            <label class="wide">Descripción
+              <textarea name="description" rows="4"></textarea>
+            </label>
+            </form>
+          </div>
+
+          <div class="panel" data-editor-panel="data">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Ambientes flexibles</p>
+                <h2>Ambientes</h2>
+              </div>
+              <button id="addRoomBtn">Agregar ambiente</button>
+            </div>
+            <div id="roomsList" class="stack"></div>
+          </div>
+
+          <div class="panel" data-editor-panel="media">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Galería y planos</p>
+                <h2>Fotos de la propiedad</h2>
+              </div>
+              <div class="panel-actions">
+                <button id="deleteSelectedPhotosBtn">Borrar seleccionadas</button>
+                <button id="deleteImportedPhotosBtn">Borrar importadas</button>
+                <button id="filterImportedPhotosBtn">Filtrar importadas con IA</button>
+                <button id="keepFirstPhotosBtn">Dejar 12</button>
+                <label class="upload-btn">
+                  Subir fotos
+                  <input id="photoInput" type="file" accept="image/*" multiple />
+                </label>
+              </div>
+            </div>
+            <div id="photoSummary" class="gallery-summary"></div>
+            <div id="photoGrid" class="photo-grid"></div>
+          </div>
+
+          <div class="panel" data-editor-panel="media">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Análisis de planos</p>
+                <h2>Planos por planta</h2>
+              </div>
+              <label class="upload-btn">
+                Subir plano
+                <input id="planInput" type="file" accept="image/*,.pdf" multiple />
+              </label>
+            </div>
+            <div id="planList" class="stack"></div>
+          </div>
+
+          <div class="panel" data-editor-panel="costs">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Costos verificables</p>
+                <h2>Facturas y documentos</h2>
+              </div>
+              <label class="upload-btn">
+                Subir documento
+                <input id="documentInput" type="file" accept="image/*,.pdf" multiple />
+              </label>
+            </div>
+            <div class="form-grid">
+              <label>UTE promedio mensual<input name="uteAvg" form="propertyForm" type="number" min="0" /></label>
+              <label>OSE promedio mensual<input name="oseAvg" form="propertyForm" type="number" min="0" /></label>
+              <label>Antel / internet mensual<input name="antelAvg" form="propertyForm" type="number" min="0" /></label>
+              <label>Contribución anual<input name="contribucionAnnual" form="propertyForm" type="number" min="0" /></label>
+              <label>Primaria anual<input name="primariaAnnual" form="propertyForm" type="number" min="0" /></label>
+              <label>Seguro hogar mensual<input name="insuranceAvg" form="propertyForm" type="number" min="0" /></label>
+            </div>
+            <div id="documentsList" class="stack document-list"></div>
+          </div>
+
+          <div class="panel" data-editor-panel="analysis">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Score de esta propiedad</p>
+                <h2 id="scorePropertyTitle">Propiedad seleccionada</h2>
+              </div>
+              <button id="manualScoreBtn">Ajuste manual</button>
+            </div>
+            <div class="score-inline">
+              <div class="score-card flat">
+                <div id="scoreValue" class="score-value">--</div>
+                <span id="scoreLabel" class="status-pill">Sin calcular</span>
+                <button id="runAiBtn" class="primary full">Analizar fotos con IA</button>
+                <button id="runPlanAiBtn" class="full">Analizar planos con IA</button>
+              </div>
+              <div id="analysisOutput" class="analysis-output"></div>
+            </div>
+          </div>
+
+          <div class="panel" data-editor-panel="analysis">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Informe</p>
+                <h2>Informe de propiedad</h2>
+              </div>
+              <button id="generateReportBtn" class="primary">Crear informe</button>
+            </div>
+            <div id="reportOutput" class="report-output"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="panel narrow">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Proveedor IA</p>
+              <h2>OpenRouter</h2>
+            </div>
+            <div class="panel-actions">
+              <button id="testAiBtn">Probar IA</button>
+              <button id="saveSettingsBtn" class="primary">Guardar</button>
+            </div>
+          </div>
+          <div class="form-grid single">
+            <label>API key
+              <input id="apiKeyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off" />
+            </label>
+            <label>Modelo visión
+              <input id="modelInput" placeholder="openai/gpt-oss-120b:free" />
+            </label>
+            <label>Modelo planos
+              <input id="planModelInput" placeholder="openai/gpt-oss-120b:free" />
+            </label>
+          </div>
+          <div class="hint">
+            Para esta demo la key se guarda en localStorage del navegador. En producción debe vivir cifrada en backend y llamarse desde jobs seguros.
+          </div>
+          <div id="aiTestOutput" class="hint hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <button id="chatBubbleBtn" class="chat-bubble-btn">IA</button>
+    <aside id="chatWidget" class="chat-widget hidden">
+      <div class="chat-widget-head">
+        <div>
+          <p class="eyebrow">Asistente IA</p>
+          <h2>Zona y propiedad</h2>
+        </div>
+        <button id="closeChatBtn">Cerrar</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" placeholder="Preguntá por colegios, conexión, servicios o zonas alternativas" autocomplete="off" />
+        <button class="primary" type="submit">Enviar</button>
+      </form>
+      <div class="quick-prompts">
+        <button data-prompt="Tengo hijos chicos. ¿Esta zona me sirve por colegios, seguridad y servicios?">Familia con hijos</button>
+        <button data-prompt="Trabajo en Montevideo. ¿Como evaluarias la conexión y tiempos de traslado?">Conexión</button>
+        <button data-prompt="Comparame esta propiedad con zonas alternativas para mi perfil.">Alternativas</button>
+      </div>
+    </aside>
+
+    <dialog id="propertyModal" class="property-modal">
+      <div class="property-modal-card">
+        <div class="property-modal-head">
+          <div>
+            <p class="eyebrow">Ficha pública</p>
+            <h2 id="modalTitle">Propiedad</h2>
+          </div>
+          <button id="closePropertyModalBtn">Cerrar</button>
+        </div>
+        <div id="propertyModalContent"></div>
+      </div>
+    </dialog>
+
+    <dialog id="manualDialog">
+      <form method="dialog" class="dialog-card">
+        <h2>Ajustar score manualmente</h2>
+        <label>Score global<input id="manualScoreInput" type="number" min="0" max="10" step="0.1" /></label>
+        <label>Nota del revisor<textarea id="manualNoteInput" rows="3"></textarea></label>
+        <menu>
+          <button value="cancel">Cancelar</button>
+          <button id="saveManualScoreBtn" value="default" class="primary">Aplicar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <template id="emptyTemplate">
+      <div class="empty">
+        <strong>No hay datos todavía</strong>
+        <span>Creá una propiedad o subí fotos para empezar el análisis.</span>
+      </div>
+    </template>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: owner-direct-demo
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-oss-120b:free
