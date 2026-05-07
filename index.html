@@ -22,10 +22,10 @@
       <button class="sidebar-toggle" id="sidebarToggle" title="Contraer menú">☰</button>
 
       <nav class="nav">
-        <button class="nav-btn active" data-view="marketplace">Portal cliente</button>
-        <button class="nav-btn" data-view="properties">Backoffice</button>
-        <button class="nav-btn" data-view="editor">Cargar propiedad</button>
-        <button class="nav-btn" data-view="settings">OpenRouter</button>
+        <button class="nav-btn active" data-view="marketplace" data-icon="PC">Portal cliente</button>
+        <button class="nav-btn" data-view="properties" data-icon="BO">Backoffice</button>
+        <button class="nav-btn" data-view="editor" data-icon="+">Cargar propiedad</button>
+        <button class="nav-btn" data-view="settings" data-icon="IA">OpenRouter</button>
       </nav>
 
       <div class="sidebar-card">
@@ -64,6 +64,36 @@
                   <button data-client-view="map">Mapa</button>
                 </div>
               </div>
+              <div class="ai-search-hero">
+                <div class="ai-search-head">
+                  <div>
+                    <p class="eyebrow">Búsqueda IA</p>
+                    <h3>Buscá propiedades como te las imaginás</h3>
+                  </div>
+                  <div class="mode-toggle">
+                    <button class="active" type="button">Comprar</button>
+                    <button type="button" disabled>Alquilar</button>
+                  </div>
+                </div>
+                <div class="ai-search-box">
+                  <input id="aiSearchInput" type="search" placeholder="Casa grande en Carrasco con jardín, piscina y buena conexión..." />
+                  <label class="upload-btn ai-image-btn">
+                    Imagen
+                    <input id="aiSearchImageInput" type="file" accept="image/*" />
+                  </label>
+                  <button id="aiSearchBtn" class="primary">Buscar con IA</button>
+                  <button id="clearAiSearchBtn">Limpiar IA</button>
+                </div>
+                <div class="prompt-row">
+                  <span>Inspirate</span>
+                  <button type="button" data-ai-prompt="Casa grande en Carrasco con jardín, piscina y parrillero">casa con jardín</button>
+                  <button type="button" data-ai-prompt="Apartamento luminoso con terraza, vista despejada y buen valor por metro cuadrado">terraza luminosa</button>
+                  <button type="button" data-ai-prompt="Propiedad familiar cerca de colegios, verde y buena conexión con Montevideo">familia y colegios</button>
+                  <button type="button" data-ai-prompt="Casa moderna con ambientes amplios, cocina integrada y buena privacidad">moderna amplia</button>
+                </div>
+                <div id="aiSearchImagePreview" class="ai-search-preview hidden"></div>
+                <div id="aiSearchOutput" class="hint hidden"></div>
+              </div>
               <div class="client-filters">
                 <input id="clientSearchInput" type="search" placeholder="Buscar zona, barrio o texto" />
                 <select id="clientTypeFilter">
@@ -83,17 +113,6 @@
                   <option value="4">4+ dorm.</option>
                 </select>
               </div>
-              <div class="ai-search-box">
-                <input id="aiSearchInput" type="search" placeholder="Buscá con IA: depto 2 ambientes en la costa, terraza, buen traslado..." />
-                <label class="upload-btn ai-image-btn">
-                  Imagen
-                  <input id="aiSearchImageInput" type="file" accept="image/*" />
-                </label>
-                <button id="aiSearchBtn" class="primary">Buscar con IA</button>
-                <button id="clearAiSearchBtn">Limpiar IA</button>
-              </div>
-              <div id="aiSearchImagePreview" class="ai-search-preview hidden"></div>
-              <div id="aiSearchOutput" class="hint hidden"></div>
               <div id="clientListPane">
                 <div id="clientPropertyGrid" class="property-grid compact"></div>
               </div>

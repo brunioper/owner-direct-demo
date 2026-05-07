@@ -545,7 +545,13 @@ function renderMarketplace() {
   grid.innerHTML = "";
 
   if (!properties.length) {
-    grid.appendChild(emptyNode());
+    const publishedCount = state.properties.filter((property) => property.status === "published").length;
+    const empty = emptyNode();
+    if (publishedCount) {
+      empty.querySelector("strong").textContent = "No hay resultados con estos filtros";
+      empty.querySelector("span").textContent = "Limpiá la búsqueda IA o ajustá filtros para volver a ver las propiedades publicadas.";
+    }
+    grid.appendChild(empty);
     renderLeafletMap([]);
     return;
   }
@@ -1187,6 +1193,7 @@ async function filesToDataUrls(files) {
 }
 
 async function callOpenRouter({ model, messages, temperature = 0.2 }) {
+  const selectedModel = model || settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
   const response = await fetch(apiUrl("/api/openrouter"), {
     method: "POST",
     headers: {
@@ -1194,7 +1201,8 @@ async function callOpenRouter({ model, messages, temperature = 0.2 }) {
     },
     body: JSON.stringify({
       apiKey: settings.apiKey || "",
-      model: model || settings.model || serverConfig.defaultModel || DEFAULT_MODEL,
+      model: selectedModel,
+      fallbackModels: modelFallbacksFor(selectedModel),
       temperature,
       messages,
     }),
@@ -1207,6 +1215,10 @@ async function callOpenRouter({ model, messages, temperature = 0.2 }) {
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter no devolvio contenido.");
   return JSON.parse(content);
+}
+
+function modelFallbacksFor(selectedModel) {
+  return MODEL_PRESETS.filter((candidate) => candidate !== selectedModel);
 }
 
 function humanAiError(status, text = "") {
@@ -1867,10 +1879,14 @@ ${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: 
     renderMarketplace();
   } catch (error) {
     const fallback = query.toLowerCase();
-    state.aiSearchIds = state.properties
+    const source = state.properties.filter((property) => property.status === "published");
+    const fallbackIds = source
       .filter((property) => `${property.title} ${property.neighborhood} ${property.city} ${property.description} ${JSON.stringify(property.extras || [])}`.toLowerCase().includes(fallback))
       .map((property) => property.id);
-    state.aiSearchExplanation = `No pude usar IA (${error.message}). Apliqué búsqueda textual sobre las fichas.`;
+    state.aiSearchIds = fallbackIds.length ? fallbackIds : null;
+    state.aiSearchExplanation = fallbackIds.length
+      ? `No pude usar IA (${error.message}). Apliqué búsqueda textual sobre las fichas publicadas.`
+      : `No pude usar IA (${error.message}). No apliqué filtro para no ocultar las propiedades publicadas.`;
     saveState();
     renderMarketplace();
   } finally {
@@ -2269,6 +2285,12 @@ function bindEvents() {
   });
   $("#aiSearchBtn").addEventListener("click", runAiPropertySearch);
   $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
+  $$("[data-ai-prompt]").forEach((button) => {
+    button.addEventListener("click", () => {
+      $("#aiSearchInput").value = button.dataset.aiPrompt;
+      runAiPropertySearch();
+    });
+  });
   $("#aiSearchInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runAiPropertySearch();
   });

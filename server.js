@@ -336,7 +336,7 @@ async function handleScrape(req, res) {
 
 async function handleOpenRouter(req, res) {
   const body = await readBody(req);
-  const { apiKey, model, messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
+  const { apiKey, model, fallbackModels = [], messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
   const effectiveApiKey = apiKey || process.env.OPENROUTER_API_KEY;
   const effectiveModel = model || process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
   if (!effectiveApiKey) {
@@ -356,6 +356,7 @@ async function handleOpenRouter(req, res) {
 
   const models = unique([
     effectiveModel,
+    ...(Array.isArray(fallbackModels) ? fallbackModels : []),
     ...(process.env.OPENROUTER_FALLBACK_MODELS || "")
       .split(",")
       .map((item) => item.trim())
@@ -388,7 +389,7 @@ async function handleOpenRouter(req, res) {
     }
     lastResponse = response;
     lastText = text;
-    if (![408, 429, 500, 502, 503, 504].includes(response.status)) break;
+    if ([401, 402].includes(response.status)) break;
   }
 
   sendJson(res, lastResponse?.status || 502, {
