@@ -356,7 +356,7 @@ async function handleOpenRouter(req, res) {
 
   const models = unique([
     effectiveModel,
-    ...(process.env.OPENROUTER_FALLBACK_MODELS || "google/gemini-2.0-flash-exp:free,qwen/qwen2.5-vl-72b-instruct:free,meta-llama/llama-3.2-11b-vision-instruct:free")
+    ...(process.env.OPENROUTER_FALLBACK_MODELS || "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),

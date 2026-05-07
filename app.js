@@ -3,6 +3,14 @@ const SETTINGS_KEY = "od-demo-settings-v1";
 const AUTH_KEY = "od-demo-auth-v1";
 const LOCAL_API_BASE = "http://127.0.0.1:4173";
 const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
+const MODEL_PRESETS = [
+  "tencent/hy3-preview:free",
+  "openai/gpt-oss-120b:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+];
 
 const defaultState = {
   selectedId: "demo-casa-i08",
@@ -350,11 +358,18 @@ async function logout() {
 
 function renderSettings() {
   $("#apiKeyInput").value = settings.apiKey || "";
-  $("#modelInput").value = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
-  $("#planModelInput").value = settings.planModel || settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+  setModelOptions($("#modelInput"), settings.model || serverConfig.defaultModel || DEFAULT_MODEL);
+  setModelOptions($("#planModelInput"), settings.planModel || settings.model || serverConfig.defaultModel || DEFAULT_MODEL);
   const configured = Boolean(settings.apiKey || serverConfig.openRouterConfigured);
   $("#aiStatus").textContent = configured ? (settings.apiKey ? "OpenRouter configurado" : "OpenRouter en servidor") : "OpenRouter sin configurar";
   $("#aiStatus").className = configured ? "status-pill" : "status-pill warn";
+}
+
+function setModelOptions(select, selectedValue) {
+  if (!select) return;
+  const values = uniqueStrings([selectedValue, ...MODEL_PRESETS]).filter(Boolean);
+  select.innerHTML = values.map((model) => `<option value="${escapeAttr(model)}">${escapeHtml(model)}</option>`).join("");
+  select.value = selectedValue;
 }
 
 function apiUrl(path) {
