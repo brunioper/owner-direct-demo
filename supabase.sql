@@ -14,11 +14,23 @@ create table if not exists public.properties (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.ai_settings (
+  id text primary key,
+  scope text not null default 'global',
+  owner_id uuid references public.profiles(id) on delete set null,
+  profile text not null default 'balanced',
+  config jsonb not null,
+  health jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists properties_owner_id_idx on public.properties(owner_id);
 create index if not exists properties_status_idx on public.properties(status);
+create index if not exists ai_settings_scope_idx on public.ai_settings(scope);
 
 alter table public.profiles enable row level security;
 alter table public.properties enable row level security;
+alter table public.ai_settings enable row level security;
 
 -- The demo reads and writes through server.js using SUPABASE_SERVICE_ROLE_KEY.
 -- Never expose the service role key in the frontend.

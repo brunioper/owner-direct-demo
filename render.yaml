@@ -10,12 +10,18 @@ services:
         value: 20
       - key: OPENROUTER_MODEL
         value: google/gemma-4-31b-it:free
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
       - key: OPENROUTER_FALLBACK_MODELS
         value: ""
+      - key: AI_ROUTING_STORAGE
+        value: db
       - key: SUPABASE_TABLE
         value: properties
       - key: SUPABASE_PROFILE_TABLE
         value: profiles
+      - key: SUPABASE_AI_SETTINGS_TABLE
+        value: ai_settings
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY

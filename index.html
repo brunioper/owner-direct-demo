@@ -6,7 +6,7 @@
     <title>Owner Direct Demo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..900,75,1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -25,7 +25,7 @@
         <button class="nav-btn active" data-view="marketplace" data-icon="PC">Portal cliente</button>
         <button class="nav-btn" data-view="properties" data-icon="BO">Backoffice</button>
         <button class="nav-btn" data-view="editor" data-icon="+">Cargar propiedad</button>
-        <button class="nav-btn" data-view="settings" data-icon="IA">OpenRouter</button>
+        <button class="nav-btn" data-view="settings" data-icon="IA">Admin IA</button>
       </nav>
 
       <div class="sidebar-card">
@@ -42,6 +42,7 @@
           <h1 id="pageTitle">Portal cliente</h1>
         </div>
         <div class="top-actions">
+          <div id="topRoleNav" class="top-role-nav"></div>
           <span id="aiStatus" class="status-pill warn">OpenRouter sin configurar</span>
           <span id="authStatus" class="status-pill">Portal público</span>
           <button id="loginBtn">Ingresar</button>
@@ -56,45 +57,65 @@
             <div class="panel">
               <div class="panel-head">
                 <div>
-                  <p class="eyebrow">Búsqueda del comprador</p>
-                  <h2>Propiedades publicadas</h2>
-                </div>
-                <div class="view-switch">
-                  <button class="active" data-client-view="list">Iconos</button>
-                  <button data-client-view="map">Mapa</button>
+                  <p class="eyebrow">Owner Direct Uruguay</p>
+                  <h2>Encontrá la propiedad que <em>te imaginás</em>.</h2>
                 </div>
               </div>
               <div class="ai-search-hero">
-                <div class="ai-search-head">
-                  <div>
-                    <p class="eyebrow">Búsqueda IA</p>
-                    <h3>Buscá propiedades como te las imaginás</h3>
-                  </div>
-                  <div class="mode-toggle">
-                    <button class="active" type="button">Comprar</button>
-                    <button type="button" disabled>Alquilar</button>
-                  </div>
-                </div>
                 <div class="ai-search-box">
-                  <input id="aiSearchInput" type="search" placeholder="Casa grande en Carrasco con jardín, piscina y buena conexión..." />
-                  <label class="upload-btn ai-image-btn">
-                    Imagen
-                    <input id="aiSearchImageInput" type="file" accept="image/*" />
-                  </label>
-                  <button id="aiSearchBtn" class="primary">Buscar con IA</button>
-                  <button id="clearAiSearchBtn">Limpiar IA</button>
+                  <div class="roomix-search-row">
+                    <div class="roomix-search-input">
+                      <div id="aiSearchThumb" class="ai-search-thumb hidden"></div>
+                      <input id="aiSearchInput" type="search" placeholder="Casa con jardín cerca de colegios, buena conexión y parrillero..." />
+                      <label class="upload-btn ai-image-btn icon-only" title="Buscar por imagen" aria-label="Buscar por imagen">
+                        Imagen
+                        <input id="aiSearchImageInput" type="file" accept="image/*" />
+                      </label>
+                      <button id="aiSearchBtn" class="primary" aria-label="Buscar con IA">Buscar con IA</button>
+                    </div>
+                    <div class="search-actions-row">
+                      <div class="mode-toggle" id="searchModeToggle">
+                        <button class="active" type="button" data-search-mode="ai">IA</button>
+                        <button type="button" data-search-mode="filters">Filtros <span id="activeFilterCount">0</span></button>
+                      </div>
+                      <button id="clearAiSearchBtn">Limpiar</button>
+                    </div>
+                  </div>
                 </div>
-                <div class="prompt-row">
-                  <span>Inspirate</span>
-                  <button type="button" data-ai-prompt="Casa grande en Carrasco con jardín, piscina y parrillero">casa con jardín</button>
-                  <button type="button" data-ai-prompt="Apartamento luminoso con terraza, vista despejada y buen valor por metro cuadrado">terraza luminosa</button>
-                  <button type="button" data-ai-prompt="Propiedad familiar cerca de colegios, verde y buena conexión con Montevideo">familia y colegios</button>
-                  <button type="button" data-ai-prompt="Casa moderna con ambientes amplios, cocina integrada y buena privacidad">moderna amplia</button>
+                <div id="aiSearchProgress" class="ai-progress hidden">
+                  <span></span>
+                  <div>
+                    <strong>Analizando tu búsqueda...</strong>
+                    <small>Buscando coincidencias reales entre las propiedades publicadas.</small>
+                  </div>
                 </div>
+                <div id="appliedSearchChips" class="applied-chips"></div>
                 <div id="aiSearchImagePreview" class="ai-search-preview hidden"></div>
+                <div class="search-helper-panel">
+                  <div class="search-helper-copy">
+                    <div id="recentSearches" class="recent-searches"></div>
+                    <div class="prompt-row">
+                      <span>Probá buscando</span>
+                      <button type="button" data-ai-prompt="Casa grande en Carrasco con jardín, piscina y parrillero">Casa con pileta</button>
+                      <button type="button" data-ai-prompt="Apartamento luminoso con terraza, vista despejada y buen valor por metro cuadrado">Vista al mar</button>
+                      <button type="button" data-ai-prompt="Propiedad familiar cerca de colegios, verde y buena conexión con Montevideo">Familia y colegios</button>
+                      <button type="button" data-ai-prompt="Casa moderna con ambientes amplios, cocina integrada y buena privacidad">Moderna amplia</button>
+                    </div>
+                  </div>
+                  <div class="search-helper-images">
+                    <p>Buscá por imagen</p>
+                    <div id="searchImageIdeas" class="image-idea-grid"></div>
+                  </div>
+                </div>
                 <div id="aiSearchOutput" class="hint hidden"></div>
+                <div id="refinementChips" class="prompt-row refinement-row hidden">
+                  <span>Refinar</span>
+                  <button type="button" data-ai-refine="Más opciones baratas">Más opciones baratas</button>
+                  <button type="button" data-ai-refine="Más grandes">Más grandes</button>
+                  <button type="button" data-ai-refine="Otro barrio similar">Otro barrio similar</button>
+                </div>
               </div>
-              <div class="client-filters">
+              <div class="client-filters" id="classicFilters">
                 <input id="clientSearchInput" type="search" placeholder="Buscar zona, barrio o texto" />
                 <select id="clientTypeFilter">
                   <option value="all">Todos los tipos</option>
@@ -113,6 +134,17 @@
                   <option value="4">4+ dorm.</option>
                 </select>
               </div>
+              <div class="results-toolbar">
+                <div>
+                  <p class="eyebrow">Resultados</p>
+                  <h3>Propiedades publicadas</h3>
+                </div>
+                <div class="view-switch">
+                  <button class="active" data-client-view="grid">Grid</button>
+                  <button data-client-view="list">List</button>
+                  <button data-client-view="map">Mapa</button>
+                </div>
+              </div>
               <div id="clientListPane">
                 <div id="clientPropertyGrid" class="property-grid compact"></div>
               </div>
@@ -126,6 +158,7 @@
       </section>
 
       <section class="view" id="view-properties">
+        <div id="backofficeDashboard" class="backoffice-dashboard"></div>
         <div class="toolbar">
           <input id="searchInput" type="search" placeholder="Buscar por título, barrio o ciudad" />
           <select id="statusFilter">
@@ -133,6 +166,18 @@
             <option value="draft">Borrador</option>
             <option value="review">En revisión</option>
             <option value="published">Publicada</option>
+          </select>
+          <select id="scoreFilter">
+            <option value="all">Todos los scores</option>
+            <option value="high">Alto (&gt; 8)</option>
+            <option value="medium">Medio (5 a 8)</option>
+            <option value="low">Bajo / sin score</option>
+          </select>
+          <select id="completionFilter">
+            <option value="all">Todas las fichas</option>
+            <option value="complete">Completas</option>
+            <option value="missing">Faltan datos</option>
+            <option value="photos">Faltan fotos</option>
           </select>
         </div>
         <div class="property-grid" id="propertyGrid"></div>
@@ -145,15 +190,17 @@
           </label>
           <button id="duplicatePropertyBtn">Duplicar</button>
         </div>
+        <div id="editorProgress" class="editor-progress"></div>
         <div class="editor-tabs">
-          <button class="active" data-editor-tab="data">Datos</button>
-          <button data-editor-tab="media">Fotos y planos</button>
-          <button data-editor-tab="costs">Costos</button>
-          <button data-editor-tab="analysis">Análisis e informe</button>
+          <button class="active" data-editor-tab="import">Importar</button>
+          <button data-editor-tab="data">Datos básicos</button>
+          <button data-editor-tab="media">Fotos</button>
+          <button data-editor-tab="analysis">Análisis</button>
+          <button data-editor-tab="publish">Publicar</button>
         </div>
         <div class="editor-layout">
           <div data-editor-panel="data">
-            <div class="panel import-panel">
+            <div class="panel import-panel import-step">
               <div class="panel-head">
                 <div>
                   <p class="eyebrow">Importación asistida</p>
@@ -177,9 +224,10 @@
                 <button id="scrapeBtn" class="primary">Scrapear datos</button>
               </div>
               <div id="scrapeOutput" class="hint hidden"></div>
+              <div id="scrapeProgress" class="operation-progress hidden"></div>
             </div>
 
-            <form class="panel" id="propertyForm">
+            <form class="panel data-step" id="propertyForm">
               <div class="panel-head">
               <div>
                 <p class="eyebrow">Ficha de carga</p>
@@ -231,7 +279,7 @@
             </form>
           </div>
 
-          <div class="panel" data-editor-panel="data">
+          <div class="panel rooms-step" data-editor-panel="data">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Ambientes flexibles</p>
@@ -242,7 +290,7 @@
             <div id="roomsList" class="stack"></div>
           </div>
 
-          <div class="panel" data-editor-panel="media">
+          <div class="panel media-step" data-editor-panel="media">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Galería y planos</p>
@@ -263,7 +311,7 @@
             <div id="photoGrid" class="photo-grid"></div>
           </div>
 
-          <div class="panel" data-editor-panel="media">
+          <div class="panel media-step" data-editor-panel="media">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Análisis de planos</p>
@@ -277,7 +325,7 @@
             <div id="planList" class="stack"></div>
           </div>
 
-          <div class="panel" data-editor-panel="costs">
+          <div class="panel data-step" data-editor-panel="costs">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Costos verificables</p>
@@ -299,7 +347,7 @@
             <div id="documentsList" class="stack document-list"></div>
           </div>
 
-          <div class="panel" data-editor-panel="analysis">
+          <div class="panel analysis-step" data-editor-panel="analysis">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Score de esta propiedad</p>
@@ -311,6 +359,7 @@
               <div class="score-card flat">
                 <div id="scoreValue" class="score-value">--</div>
                 <span id="scoreLabel" class="status-pill">Sin calcular</span>
+                <div id="analysisProgress" class="operation-progress compact hidden"></div>
                 <button id="runAiBtn" class="primary full">Analizar fotos con IA</button>
                 <button id="runPlanAiBtn" class="full">Analizar planos con IA</button>
               </div>
@@ -318,44 +367,55 @@
             </div>
           </div>
 
-          <div class="panel" data-editor-panel="analysis">
+          <div class="panel publish-step" data-editor-panel="analysis">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Informe</p>
                 <h2>Informe de propiedad</h2>
               </div>
-              <button id="generateReportBtn" class="primary">Crear informe</button>
+              <div class="panel-actions">
+                <button id="publishFromEditorBtn">Publicar ahora</button>
+                <button id="generateReportBtn" class="primary">Crear informe</button>
+              </div>
             </div>
+            <div id="publishChecklist" class="publish-checklist"></div>
             <div id="reportOutput" class="report-output"></div>
           </div>
         </div>
+        <div id="wizardControls" class="wizard-controls"></div>
       </section>
 
       <section class="view" id="view-settings">
-        <div class="panel narrow">
+        <div class="panel ai-manager-panel">
           <div class="panel-head">
             <div>
               <p class="eyebrow">Proveedor IA</p>
-              <h2>OpenRouter</h2>
+              <h2>AI Model Manager</h2>
             </div>
             <div class="panel-actions">
-              <button id="testAiBtn">Probar IA</button>
+              <button id="resetAiConfigBtn">Reset defaults</button>
+              <button id="testAiBtn">Probar activos</button>
               <button id="saveSettingsBtn" class="primary">Guardar</button>
             </div>
           </div>
-          <div class="form-grid single">
+          <div class="form-grid">
             <label>API key
               <input id="apiKeyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off" />
             </label>
-            <label>Modelo visión
-              <select id="modelInput"></select>
-            </label>
-            <label>Modelo planos
-              <select id="planModelInput"></select>
+            <label>Perfil
+              <select id="modelProfileSelect">
+                <option value="fast">Rápido y económico</option>
+                <option value="balanced">Equilibrado</option>
+                <option value="quality">Máxima calidad</option>
+              </select>
             </label>
           </div>
-          <div class="hint">
-            Para esta demo la key se guarda en localStorage del navegador. En producción debe vivir cifrada en backend y llamarse desde jobs seguros.
+          <div class="model-summary-grid" id="modelSummaryGrid"></div>
+          <div id="aiUsagePanel" class="ai-usage-panel"></div>
+          <div class="model-manager-grid" id="modelManagerGrid"></div>
+          <div class="hint ai-manager-hint">
+            La selección se guarda en este navegador y, si Supabase está activo, también como configuración global del admin.
+            Cada operación prueba el modelo activo y luego su cola de fallback.
           </div>
           <div id="aiTestOutput" class="hint hidden"></div>
         </div>

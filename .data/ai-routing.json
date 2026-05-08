@@ -1,0 +1,44 @@
+{
+  "profile": "balanced",
+  "functions": {
+    "search": {
+      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "fallbacks": [],
+      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "lastSuccessAt": "2026-05-08T21:15:20.356Z",
+      "status": "failed",
+      "averageMs": 314
+    },
+    "vision": {
+      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "fallbacks": [
+        "tencent/hy3-preview:free",
+        "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+      ],
+      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "lastSuccessAt": "2026-05-08T21:15:44.237Z",
+      "status": "active",
+      "averageMs": 168987
+    },
+    "plan": {
+      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "fallbacks": [
+        "tencent/hy3-preview:free"
+      ],
+      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "lastSuccessAt": "2026-05-08T20:51:16.089Z",
+      "status": "active",
+      "averageMs": 3044
+    },
+    "score": {
+      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "fallbacks": [
+        "google/gemma-4-31b-it:free"
+      ],
+      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "lastSuccessAt": "2026-05-08T20:51:20.370Z",
+      "status": "active",
+      "averageMs": 43461
+    }
+  }
+}

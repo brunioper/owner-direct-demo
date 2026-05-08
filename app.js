@@ -1,5 +1,7 @@
 const STORAGE_KEY = "od-demo-state-v1";
 const SETTINGS_KEY = "od-demo-settings-v1";
+const AI_CONFIG_KEY = "od-demo-ai-config-v1";
+const AI_USAGE_KEY = "od-demo-ai-usage-v1";
 const AUTH_KEY = "od-demo-auth-v1";
 const LOCAL_API_BASE = "http://127.0.0.1:4173";
 const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
@@ -11,12 +13,61 @@ const MODEL_PRESETS = [
   "nvidia/llama-nemotron-embed-vl-1b-v2:free",
   "meta-llama/llama-3.2-3b-instruct:free",
 ];
+const AI_FUNCTIONS = {
+  search: { label: "Búsqueda IA", help: "Texto natural, imagen de referencia y ranking de propiedades.", speed: "rápido", quality: "media/alta" },
+  vision: { label: "Fotos", help: "Análisis visual de fotos, ambientes y calidad de imagen.", speed: "medio", quality: "visual" },
+  plan: { label: "Planos", help: "Lectura de planos, plantas, dormitorios y baños.", speed: "medio", quality: "espacial" },
+  score: { label: "Score", help: "Evaluación comercial, riesgos y reporte de valor.", speed: "medio", quality: "razonamiento" },
+};
+const EDITOR_STEPS = ["import", "data", "media", "analysis", "publish"];
+const EDITOR_STEP_LABELS = {
+  import: "Importar",
+  data: "Datos básicos",
+  media: "Fotos",
+  analysis: "Análisis",
+  publish: "Publicar",
+};
+const MODEL_PROFILES = {
+  fast: {
+    label: "Rápido y económico",
+    description: "Prioriza modelos free/livianos para demos rápidas.",
+    functions: {
+      search: ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
+      vision: ["google/gemma-4-31b-it:free", "nvidia/llama-nemotron-embed-vl-1b-v2:free", "tencent/hy3-preview:free"],
+      plan: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      score: ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
+    },
+  },
+  balanced: {
+    label: "Equilibrado",
+    description: "Default: buen balance para búsqueda, fotos, planos y scoring.",
+    functions: {
+      search: ["google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
+      vision: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      plan: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      score: ["openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+    },
+  },
+  quality: {
+    label: "Máxima calidad",
+    description: "Prueba primero modelos más pesados/omni para mejor análisis.",
+    functions: {
+      search: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
+      vision: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
+      plan: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "tencent/hy3-preview:free", "google/gemma-4-31b-it:free"],
+      score: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
+    },
+  },
+};
 
 const defaultState = {
   selectedId: "demo-casa-i08",
   editorMode: "edit",
   draftProperty: null,
-  clientView: "list",
+  clientView: "grid",
+  searchMode: "ai",
+  recentSearches: [],
+  favoriteIds: [],
   editorTab: "data",
   aiSearchIds: null,
   aiSearchExplanation: "",
@@ -76,6 +127,7 @@ const defaultState = {
 
 let state = loadState();
 let settings = loadSettings();
+let aiModelConfig = loadAiModelConfig();
 let authSession = loadAuthSession();
 let serverConfig = {};
 let remoteSaveTimer = null;
@@ -101,7 +153,10 @@ function loadState() {
 
 function migrateState(nextState) {
   nextState.properties = nextState.properties || [];
-  nextState.clientView ||= "list";
+  nextState.clientView ||= "grid";
+  nextState.searchMode ||= "ai";
+  nextState.recentSearches ??= [];
+  nextState.favoriteIds ??= [];
   nextState.editorTab ||= "data";
   nextState.aiSearchIds ??= null;
   nextState.aiSearchExplanation ??= "";
@@ -145,6 +200,56 @@ function loadSettings() {
   } catch {
     return { model: DEFAULT_MODEL, planModel: DEFAULT_MODEL };
   }
+}
+
+function defaultAiModelConfig(profile = "balanced") {
+  const base = MODEL_PROFILES[profile] || MODEL_PROFILES.balanced;
+  const functions = {};
+  Object.keys(AI_FUNCTIONS).forEach((key) => {
+    const queue = base.functions[key] || [DEFAULT_MODEL];
+    functions[key] = {
+      activeModel: queue[0] || DEFAULT_MODEL,
+      fallbacks: queue.slice(1),
+      lastSuccessfulModel: "",
+      lastSuccessAt: "",
+      status: "unknown",
+      averageMs: null,
+    };
+  });
+  return { profile, functions };
+}
+
+function loadAiModelConfig() {
+  try {
+    return normalizeAiModelConfig(JSON.parse(localStorage.getItem(AI_CONFIG_KEY)));
+  } catch {
+    return defaultAiModelConfig();
+  }
+}
+
+function normalizeAiModelConfig(config) {
+  const fallback = defaultAiModelConfig(config?.profile || "balanced");
+  const next = config && typeof config === "object" ? config : fallback;
+  const result = { profile: next.profile || fallback.profile, functions: {} };
+  Object.keys(AI_FUNCTIONS).forEach((key) => {
+    const item = next.functions?.[key] || fallback.functions[key];
+    result.functions[key] = {
+      activeModel: item.activeModel || fallback.functions[key].activeModel || DEFAULT_MODEL,
+      fallbacks: uniqueStrings(Array.isArray(item.fallbacks) ? item.fallbacks : fallback.functions[key].fallbacks).filter((model) => model !== item.activeModel),
+      lastSuccessfulModel: item.lastSuccessfulModel || "",
+      lastSuccessAt: item.lastSuccessAt || "",
+      status: item.status || "unknown",
+      averageMs: item.averageMs || null,
+    };
+  });
+  return result;
+}
+
+function saveAiModelConfig({ remote = true } = {}) {
+  aiModelConfig = normalizeAiModelConfig(aiModelConfig);
+  localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiModelConfig));
+  if (remote) syncAiConfigRemote();
+  renderSettings();
 }
 
 function loadAuthSession() {
@@ -231,11 +336,12 @@ function setView(view) {
   $$(".view").forEach((element) => element.classList.remove("active"));
   $$(".nav-btn").forEach((element) => element.classList.toggle("active", element.dataset.view === view));
   $(`#view-${view}`).classList.add("active");
+  document.body.dataset.view = view;
   $("#pageTitle").textContent = {
     properties: "Propiedades",
     marketplace: "Portal cliente",
     editor: "Cargar propiedad",
-    settings: "OpenRouter",
+    settings: "Admin IA",
   }[view];
   $("#newPropertyBtn").classList.toggle("hidden", view === "marketplace" || !canManageProperties());
   $("#chatBubbleBtn").classList.toggle("hidden", view !== "marketplace");
@@ -245,6 +351,45 @@ function setView(view) {
 
 function emptyNode() {
   return $("#emptyTemplate").content.firstElementChild.cloneNode(true);
+}
+
+function showToast(message) {
+  let toast = $("#autosaveToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "autosaveToast";
+    toast.className = "autosave-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 1300);
+}
+
+function setOperationProgress(selector, { title, detail = "", percent = 0, status = "active" } = {}) {
+  const element = $(selector);
+  if (!element) return;
+  const value = Math.max(0, Math.min(100, Number(percent || 0)));
+  element.classList.remove("hidden", "done", "error");
+  if (status === "done") element.classList.add("done");
+  if (status === "error") element.classList.add("error");
+  element.style.setProperty("--progress", `${value}%`);
+  element.innerHTML = `
+    <div class="operation-progress-head">
+      <strong>${escapeHtml(title || "Procesando...")}</strong>
+      <span>${value}%</span>
+    </div>
+    <div class="operation-progress-track"><div class="operation-progress-bar"></div></div>
+    ${detail ? `<p class="operation-progress-detail">${escapeHtml(detail)}</p>` : ""}
+  `;
+}
+
+function clearOperationProgress(selector) {
+  const element = $(selector);
+  if (!element) return;
+  element.classList.add("hidden");
+  element.innerHTML = "";
 }
 
 function formatUsd(value) {
@@ -290,14 +435,58 @@ function pricePerM2Label(property) {
   return value ? `USD ${value.toLocaleString("es-UY")} / m² edificado (${built.toLocaleString("es-UY")} m²)` : "USD/m² pendiente";
 }
 
+function scoreDial(score, size = "mini") {
+  const value = Number(score || 0);
+  if (!value) return "";
+  const radius = size === "large" ? 34 : 13;
+  const stroke = size === "large" ? 7 : 4;
+  const box = (radius + stroke) * 2;
+  const dash = Math.max(0, Math.min(1, value / 10));
+  return `
+    <span class="score-dial ${size}" title="Score OD: ${value.toFixed(1)} sobre 10">
+      <svg viewBox="0 0 ${box} ${box}" aria-hidden="true">
+        <circle class="track" cx="${box / 2}" cy="${box / 2}" r="${radius}"></circle>
+        <circle class="value" cx="${box / 2}" cy="${box / 2}" r="${radius}" pathLength="1" style="stroke-dasharray:${dash} 1"></circle>
+      </svg>
+      <strong>${value.toFixed(1)}</strong>
+    </span>
+  `;
+}
+
 function statusText(status) {
   return { draft: "Borrador", review: "En revision", published: "Publicada" }[status] || status;
+}
+
+function propertyCompleteness(property) {
+  const missing = missingFields(property);
+  const coreChecks = [
+    property.title,
+    property.price,
+    property.neighborhood,
+    property.city,
+    property.bedrooms !== "",
+    property.bathrooms !== "",
+    builtAreaForValue(property),
+    property.photos.length >= 8,
+    property.score || property.analysis,
+    verifiedDocumentTypes(property).length || property.uteAvg || property.oseAvg || property.commonFees,
+  ];
+  const completed = coreChecks.filter(Boolean).length;
+  return {
+    percent: Math.round((completed / coreChecks.length) * 100),
+    missing,
+    photosOk: property.photos.length >= 8,
+    dataOk: Boolean(property.title && property.price && property.neighborhood && property.city && builtAreaForValue(property)),
+    analysisOk: Boolean(property.score || property.analysis),
+    docsOk: Boolean(verifiedDocumentTypes(property).length || property.uteAvg || property.oseAvg || property.commonFees),
+  };
 }
 
 function renderAll() {
   renderAuth();
   renderSettings();
   renderMarketplace();
+  renderBackofficeDashboard();
   renderProperties();
   renderForm();
   renderRooms();
@@ -308,6 +497,9 @@ function renderAll() {
   renderDocuments();
   renderReport();
   renderEditorTabs();
+  renderEditorProgress();
+  renderPublishChecklist();
+  renderWizardControls();
   renderActivePropertySelectors();
 }
 
@@ -321,6 +513,24 @@ function renderAuth() {
   }[currentRole()] || "Visitante";
   const status = $("#authStatus");
   if (status) status.textContent = user ? `${roleLabel}: ${user.email}` : "Portal público";
+  const topRoleNav = $("#topRoleNav");
+  if (topRoleNav) {
+    const items = [
+      { view: "marketplace", label: "Portal" },
+      ...(canManageProperties() ? [
+        { view: "properties", label: "Backoffice" },
+        { view: "editor", label: "Cargar" },
+      ] : []),
+      ...(currentRole() === "admin" ? [{ view: "settings", label: "Admin IA" }] : []),
+    ];
+    topRoleNav.innerHTML = items.map((item) => `
+      <button type="button" data-top-view="${item.view}" class="${$(`#view-${item.view}`)?.classList.contains("active") ? "active" : ""}">${item.label}</button>
+    `).join("");
+  }
+  const marketplaceActive = $("#view-marketplace")?.classList.contains("active");
+  $("#aiStatus")?.classList.toggle("hidden", marketplaceActive || currentRole() !== "admin");
+  status?.classList.toggle("hidden", marketplaceActive);
+  $(".sidebar-card")?.classList.toggle("hidden", currentRole() !== "admin");
   $("#loginBtn")?.classList.toggle("hidden", Boolean(user));
   $("#logoutBtn")?.classList.toggle("hidden", !user);
   $$(".nav-btn").forEach((button) => {
@@ -358,18 +568,152 @@ async function logout() {
 
 function renderSettings() {
   $("#apiKeyInput").value = settings.apiKey || "";
-  setModelOptions($("#modelInput"), settings.model || serverConfig.defaultModel || DEFAULT_MODEL);
-  setModelOptions($("#planModelInput"), settings.planModel || settings.model || serverConfig.defaultModel || DEFAULT_MODEL);
+  const profile = $("#modelProfileSelect");
+  if (profile) profile.value = aiModelConfig.profile || "balanced";
   const configured = Boolean(settings.apiKey || serverConfig.openRouterConfigured);
   $("#aiStatus").textContent = configured ? (settings.apiKey ? "OpenRouter configurado" : "OpenRouter en servidor") : "OpenRouter sin configurar";
   $("#aiStatus").className = configured ? "status-pill" : "status-pill warn";
+  renderModelManager();
+  renderAiUsage();
 }
 
-function setModelOptions(select, selectedValue) {
-  if (!select) return;
-  const values = uniqueStrings([selectedValue, ...MODEL_PRESETS]).filter(Boolean);
-  select.innerHTML = values.map((model) => `<option value="${escapeAttr(model)}">${escapeHtml(model)}</option>`).join("");
-  select.value = selectedValue;
+function renderModelManager() {
+  const summary = $("#modelSummaryGrid");
+  const grid = $("#modelManagerGrid");
+  if (!summary || !grid) return;
+  const systemStatus = Object.values(aiModelConfig.functions || {}).some((item) => item.status === "failed")
+    ? "error"
+    : Object.values(aiModelConfig.functions || {}).some((item) => item.status === "fallback")
+      ? "fallback"
+      : "ok";
+  summary.innerHTML = `
+    <div class="model-summary-card system ${systemStatus}">
+      <span class="model-status ${systemStatus === "ok" ? "ok" : systemStatus === "fallback" ? "warn" : "bad"}">${systemStatus === "ok" ? "Sistema OK" : systemStatus === "fallback" ? "Fallback activo" : "Revisar IA"}</span>
+      <strong>Routing IA</strong>
+      <small>${serverConfig.openRouterConfigured ? "Server key configurada" : "Server key pendiente"}</small>
+      <em>${settings.apiKey ? "Override del browser activo" : `Storage: ${escapeHtml(serverConfig.aiRoutingStorage || "auto")}`}</em>
+    </div>
+    ${Object.entries(AI_FUNCTIONS).map(([key, info]) => {
+    const item = aiModelConfig.functions[key];
+    return `
+      <div class="model-summary-card">
+        <span class="model-status ${statusClass(item.status)}">${statusTextModel(item.status)}</span>
+        <strong>${escapeHtml(info.label)}</strong>
+        <small>${escapeHtml(item.lastSuccessfulModel || item.activeModel)}</small>
+        <em>${item.averageMs ? `${Math.round(item.averageMs)} ms promedio` : "Sin telemetría"}</em>
+      </div>
+    `;
+  }).join("")}`;
+
+  grid.innerHTML = Object.entries(AI_FUNCTIONS).map(([key, info]) => {
+    const item = aiModelConfig.functions[key];
+    const queue = uniqueStrings([item.activeModel, ...(item.fallbacks || []), ...MODEL_PRESETS]);
+    const fallbackRows = (item.fallbacks || []).map((model, index) => `
+      <div class="fallback-row" draggable="true" data-fallback-index="${index}" data-fallback-function="${key}">
+        <span>${index + 1}</span>
+        <code>${escapeHtml(model)}</code>
+        <button data-remove-fallback="${key}" data-model="${escapeAttr(model)}">Quitar</button>
+      </div>
+    `).join("");
+    return `
+      <article class="model-manager-card" data-function="${key}">
+        <div class="model-card-head">
+          <div>
+            <p class="eyebrow">${escapeHtml(key)}</p>
+            <h3>${escapeHtml(info.label)}</h3>
+            <span>${escapeHtml(info.help)}</span>
+          </div>
+          <span class="model-status ${statusClass(item.status)}">${statusTextModel(item.status)}</span>
+        </div>
+        <div class="model-traits">
+          <span>Velocidad: ${escapeHtml(info.speed)}</span>
+          <span>Calidad: ${escapeHtml(info.quality)}</span>
+        </div>
+        <label>Modelo activo
+          <select data-ai-active-model="${key}">
+            ${queue.map((model) => `<option value="${escapeAttr(model)}" ${model === item.activeModel ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Custom / agregar a fallback
+          <div class="inline-control">
+            <input data-ai-custom-model="${key}" placeholder="provider/model-name" />
+            <button data-add-fallback="${key}">Agregar</button>
+          </div>
+        </label>
+        <div class="fallback-list">
+          <strong>Fallback queue</strong>
+          ${fallbackRows || `<span class="muted-light">Sin fallbacks configurados</span>`}
+        </div>
+        <div class="model-meta">
+          <span>Último OK: ${escapeHtml(item.lastSuccessAt ? new Date(item.lastSuccessAt).toLocaleString("es-UY") : "pendiente")}</span>
+          <span>Modelo usado: ${escapeHtml(item.lastSuccessfulModel || "pendiente")}</span>
+        </div>
+        <button class="primary" data-test-model="${key}">Test Now</button>
+      </article>
+    `;
+  }).join("");
+}
+
+function loadAiUsage() {
+  try {
+    return JSON.parse(localStorage.getItem(AI_USAGE_KEY)) || { total: 0, byFunction: {}, last: null };
+  } catch {
+    return { total: 0, byFunction: {}, last: null };
+  }
+}
+
+function recordAiUsage(functionType, meta = {}) {
+  const usage = loadAiUsage();
+  usage.total = Number(usage.total || 0) + 1;
+  usage.byFunction ||= {};
+  usage.byFunction[functionType] ||= { count: 0, totalMs: 0 };
+  usage.byFunction[functionType].count += 1;
+  usage.byFunction[functionType].totalMs += Number(meta.durationMs || 0);
+  usage.last = {
+    functionType,
+    usedModel: meta.usedModel || modelForFunction(functionType),
+    fallbackUsed: Boolean(meta.fallbackUsed),
+    durationMs: Number(meta.durationMs || 0),
+    at: new Date().toISOString(),
+  };
+  localStorage.setItem(AI_USAGE_KEY, JSON.stringify(usage));
+  renderAiUsage();
+}
+
+function renderAiUsage() {
+  const panel = $("#aiUsagePanel");
+  if (!panel) return;
+  const usage = loadAiUsage();
+  const rows = Object.entries(AI_FUNCTIONS).map(([key, info]) => {
+    const item = usage.byFunction?.[key] || { count: 0, totalMs: 0 };
+    const avg = item.count ? Math.round(item.totalMs / item.count) : 0;
+    return `
+      <div>
+        <strong>${escapeHtml(info.label)}</strong>
+        <span>${item.count} usos</span>
+        <em>${avg ? `${avg} ms promedio` : "sin datos"}</em>
+      </div>
+    `;
+  }).join("");
+  panel.innerHTML = `
+    <div class="ai-usage-head">
+      <div>
+        <p class="eyebrow">Uso IA</p>
+        <h3>Telemetría local</h3>
+      </div>
+      <span class="status-pill">${Number(usage.total || 0)} operaciones</span>
+    </div>
+    <div class="ai-usage-grid">${rows}</div>
+    ${usage.last ? `<p class="ai-usage-last">Último uso: ${escapeHtml(AI_FUNCTIONS[usage.last.functionType]?.label || usage.last.functionType)} con ${escapeHtml(usage.last.usedModel)}${usage.last.fallbackUsed ? " (fallback)" : ""}.</p>` : ""}
+  `;
+}
+
+function statusTextModel(status) {
+  return { active: "Activo", testing: "Probando", failed: "Falló", fallback: "Fallback activo", unknown: "Sin probar" }[status] || "Sin probar";
+}
+
+function statusClass(status) {
+  return { active: "ok", testing: "testing", failed: "bad", fallback: "warn" }[status] || "neutral";
 }
 
 function apiUrl(path) {
@@ -385,7 +729,36 @@ async function loadServerConfig() {
   }
   await validateAuthSession();
   renderSettings();
+  await loadRemoteAiConfig();
   await loadRemoteProperties();
+}
+
+async function loadRemoteAiConfig() {
+  try {
+    const response = await fetch(apiUrl("/api/ai-config"), { headers: authHeaders() });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data.config) {
+      aiModelConfig = normalizeAiModelConfig(data.config);
+      localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiModelConfig));
+      renderSettings();
+    }
+  } catch (error) {
+    console.warn("No se pudo cargar configuración IA", error);
+  }
+}
+
+async function syncAiConfigRemote() {
+  if (!currentUser() || currentRole() !== "admin") return;
+  try {
+    await fetch(apiUrl("/api/ai-config"), {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ config: aiModelConfig }),
+    });
+  } catch (error) {
+    console.warn("No se pudo guardar configuración IA", error);
+  }
 }
 
 async function validateAuthSession() {
@@ -447,13 +820,69 @@ function manageablePropertiesForSync() {
   return state.properties.filter(propertyOwnedByCurrentUser);
 }
 
+function renderBackofficeDashboard() {
+  const dashboard = $("#backofficeDashboard");
+  if (!dashboard) return;
+  const properties = backofficeProperties();
+  const published = properties.filter((property) => property.status === "published").length;
+  const drafts = properties.filter((property) => property.status !== "published").length;
+  const scored = properties.filter((property) => Number(property.score || 0) > 0);
+  const avgScore = scored.length ? (scored.reduce((sum, property) => sum + Number(property.score || 0), 0) / scored.length).toFixed(1) : "--";
+  const avgCompletion = properties.length
+    ? Math.round(properties.reduce((sum, property) => sum + propertyCompleteness(property).percent, 0) / properties.length)
+    : 0;
+  const smartActions = properties.flatMap((property) => {
+    const complete = propertyCompleteness(property);
+    const actions = [];
+    if (!complete.docsOk) actions.push({ level: "warn", text: `"${property.title || "Propiedad"}" necesita costos/documentos verificables.` });
+    if (property.photos.length < 8) actions.push({ level: "warn", text: `"${property.title || "Propiedad"}" tiene ${property.photos.length} fotos; recomendadas 8+.` });
+    if (!complete.analysisOk) actions.push({ level: "info", text: `"${property.title || "Propiedad"}" todavía no tiene análisis IA.` });
+    if (complete.percent >= 80 && property.status !== "published") actions.push({ level: "ok", text: `"${property.title || "Propiedad"}" está lista para publicar.` });
+    return actions;
+  }).slice(0, 4);
+
+  dashboard.innerHTML = `
+    <div class="dashboard-hero">
+      <div>
+        <p class="eyebrow">Backoffice</p>
+        <h2>Mis propiedades</h2>
+        <span>${properties.length} fichas cargadas · ${published} publicadas · ${drafts} borradores/revisión</span>
+      </div>
+      <div class="dashboard-kpis">
+        <div><strong>${published}</strong><span>Publicadas</span></div>
+        <div><strong>${avgScore}</strong><span>Score promedio</span></div>
+        <div><strong>${avgCompletion}%</strong><span>Completitud</span></div>
+      </div>
+    </div>
+    <div class="smart-actions">
+      <div class="smart-actions-head">
+        <strong>Acciones recomendadas</strong>
+        <span>Calidad de publicación</span>
+      </div>
+      ${smartActions.length ? smartActions.map((action) => `<div class="smart-action ${action.level}">${escapeHtml(action.text)}</div>`).join("") : `<div class="smart-action ok">Todo lo cargado está razonablemente completo.</div>`}
+    </div>
+  `;
+}
+
 function renderProperties() {
   const grid = $("#propertyGrid");
   const query = $("#searchInput").value.trim().toLowerCase();
   const status = $("#statusFilter").value;
+  const scoreFilter = $("#scoreFilter")?.value || "all";
+  const completionFilter = $("#completionFilter")?.value || "all";
   const properties = backofficeProperties().filter((property) => {
     const haystack = `${property.title} ${property.neighborhood} ${property.city}`.toLowerCase();
-    return haystack.includes(query) && (status === "all" || property.status === status);
+    const score = Number(property.score || 0);
+    const complete = propertyCompleteness(property);
+    const scoreOk = scoreFilter === "all"
+      || (scoreFilter === "high" && score > 8)
+      || (scoreFilter === "medium" && score >= 5 && score <= 8)
+      || (scoreFilter === "low" && score < 5);
+    const completionOk = completionFilter === "all"
+      || (completionFilter === "complete" && complete.percent >= 80)
+      || (completionFilter === "missing" && complete.percent < 80)
+      || (completionFilter === "photos" && !complete.photosOk);
+    return haystack.includes(query) && (status === "all" || property.status === status) && scoreOk && completionOk;
   });
 
   grid.innerHTML = "";
@@ -467,6 +896,7 @@ function renderProperties() {
     card.className = "property-card";
     const cover = photoSrc(property.photos[0]);
     const score = property.score ? Number(property.score).toFixed(1) : "--";
+    const complete = propertyCompleteness(property);
     card.innerHTML = `
       <div class="property-media">${cover ? `<img src="${cover}" alt="">` : "Sin foto principal"}</div>
       <div class="property-body">
@@ -489,6 +919,13 @@ function renderProperties() {
           <span>${property.photos.length} fotos</span>
           <span>${property.videos.length} videos</span>
           <span>${property.plans.length} planos</span>
+        </div>
+        <div class="quality-meter" aria-label="Completitud ${complete.percent}%">
+          <span style="width:${complete.percent}%"></span>
+        </div>
+        <div class="meta quality-meta">
+          <span>${complete.percent}% completa</span>
+          <span>${complete.missing.slice(0, 2).join(", ") || "Sin pendientes críticos"}</span>
         </div>
         <div class="card-actions">
           ${property.status === "published"
@@ -535,13 +972,16 @@ function renderMarketplace() {
   $("#clientListPane").classList.toggle("hidden", state.clientView === "map");
   $("#clientMapPane").classList.toggle("hidden", state.clientView !== "map");
   $$("[data-client-view]").forEach((button) => button.classList.toggle("active", button.dataset.clientView === state.clientView));
+  renderSearchUi();
   const properties = clientFilteredProperties();
   const aiOutput = $("#aiSearchOutput");
   if (aiOutput) {
-    aiOutput.classList.toggle("hidden", !state.aiSearchExplanation);
-    aiOutput.innerHTML = state.aiSearchExplanation ? `<strong>Búsqueda IA activa.</strong><br>${escapeHtml(state.aiSearchExplanation)}` : "";
+    const publicExplanation = publicAiExplanation(state.aiSearchExplanation);
+    aiOutput.classList.toggle("hidden", !publicExplanation);
+    aiOutput.innerHTML = publicExplanation ? `<strong>Búsqueda IA activa.</strong><br>${escapeHtml(publicExplanation)}` : "";
   }
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
+  grid.classList.toggle("list-mode", state.clientView === "list");
   grid.innerHTML = "";
 
   if (!properties.length) {
@@ -558,28 +998,44 @@ function renderMarketplace() {
 
   properties.forEach((property, index) => {
     const card = document.createElement("article");
-    card.className = "property-card";
+    card.className = `property-card public-card ${state.clientView === "list" ? "list-card" : ""}`;
     const cover = photoSrc(property.photos[0]);
     const score = property.score ? Number(property.score).toFixed(1) : "--";
+    const badges = propertyBadges(property);
+    const favorite = state.favoriteIds.includes(property.id);
     card.innerHTML = `
-      <div class="property-media">${cover ? `<img src="${cover}" alt="">` : "Sin foto principal"}</div>
+      <div class="property-media">
+        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(property.title || "Propiedad")}">` : "Sin foto principal"}
+        <div class="media-overlay">
+          <div>${badges.map((badge) => `<span class="tag ${badge.kind}">${escapeHtml(badge.label)}</span>`).join("")}</div>
+          <strong>${formatUsd(Number(property.price))}</strong>
+        </div>
+      </div>
       <div class="property-body">
         <h3>${escapeHtml(property.title || "Propiedad sin titulo")}</h3>
-        <div class="meta">
-          <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}</span>
+        <strong class="public-price">${formatUsd(Number(property.price))}</strong>
+        <div class="meta location-line">
+          <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}, ${escapeHtml(property.city || "Uruguay")}</span>
+        </div>
+        <div class="icon-row">
           <span>${property.bedrooms || 0} dorm.</span>
-          <span>${property.bathrooms || 0} banos</span>
+          <span>${property.bathrooms || 0} baños</span>
+          <span>${builtAreaForValue(property) || "--"} m²</span>
         </div>
-        <div class="price-row">
-          <span>${formatUsd(Number(property.price))}</span>
-          <span class="status-pill">${score} OD</span>
-        </div>
-        <div class="meta" style="margin-top:8px">
+        <div class="card-metrics">
+          ${property.score ? scoreDial(property.score) : ""}
           <span>${pricePerM2Label(property)}</span>
+        </div>
+        <div class="public-card-actions">
+          <button class="primary" data-open-public-property="${property.id}">Ver detalles</button>
+          <button class="${favorite ? "saved" : ""}" data-favorite-property="${property.id}">${favorite ? "Guardada" : "Guardar"}</button>
         </div>
       </div>
     `;
-    card.addEventListener("click", () => openPropertyModal(property.id));
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      openPropertyModal(property.id);
+    });
     grid.appendChild(card);
   });
   renderLeafletMap(properties);
@@ -590,9 +1046,210 @@ function renderMarketplace() {
   }
 }
 
+function publicAiExplanation(text = "") {
+  const clean = String(text || "")
+    .replace(/\s*Modelo usado:.*$/i, "")
+    .replace(/OpenRouter/gi, "IA")
+    .replace(/Falta API key de IA\./gi, "La IA no está configurada todavía.")
+    .replace(/\s*\(fallback\)\.?/gi, "")
+    .trim();
+  if (/No pude usar IA|No endpoints|Failed to fetch|Provider returned|rate-limited|API key|401|402|429|500|502|503|504/i.test(clean)) {
+    return "La IA no pudo completar el análisis esta vez. Dejé visibles las propiedades publicadas para que puedas seguir explorando.";
+  }
+  return clean;
+}
+
+function renderSearchUi() {
+  $$("[data-search-mode]").forEach((button) => button.classList.toggle("active", button.dataset.searchMode === state.searchMode));
+  $("#classicFilters")?.classList.toggle("hidden", state.searchMode !== "filters");
+  const queryValue = $("#aiSearchInput")?.value || "";
+  if (queryValue || aiSearchImageDataUrl || state.aiSearchIds || state.aiSearchExplanation) setSearchPanelOpen(true);
+  const filterCount = activeFilterCount();
+  if ($("#activeFilterCount")) $("#activeFilterCount").textContent = filterCount;
+  const applied = $("#appliedSearchChips");
+  if (applied) {
+    const chips = extractedSearchChips(queryValue);
+    applied.innerHTML = chips.map((chip) => `<span class="search-chip">${escapeHtml(chip)}</span>`).join("");
+  }
+  const recent = $("#recentSearches");
+  if (recent) {
+    recent.innerHTML = state.recentSearches.length
+      ? `<span>Búsquedas recientes</span>${state.recentSearches.map((query) => `<button type="button" data-recent-search="${escapeAttr(query)}">${escapeHtml(query)}</button>`).join("")}`
+      : "";
+  }
+  renderSearchImageIdeas();
+  $("#refinementChips")?.classList.toggle("hidden", !state.aiSearchIds && !state.aiSearchExplanation);
+}
+
+function setSearchPanelOpen(open) {
+  $(".ai-search-hero")?.classList.toggle("search-panel-open", Boolean(open));
+}
+
+function activeFilterCount() {
+  let count = 0;
+  if (($("#clientSearchInput")?.value || "").trim()) count += 1;
+  if (($("#clientTypeFilter")?.value || "all") !== "all") count += 1;
+  if (Number($("#clientMaxPriceInput")?.value || 0)) count += 1;
+  if (Number($("#clientBedroomsFilter")?.value || 0)) count += 1;
+  return count;
+}
+
+function renderSearchImageIdeas() {
+  const target = $("#searchImageIdeas");
+  if (!target) return;
+  const ideas = state.properties
+    .filter((property) => property.status === "published" && photoSrc(property.photos[0]))
+    .slice(0, 5)
+    .map((property) => ({ id: property.id, title: property.title, src: photoSrc(property.photos[0]) }));
+  target.innerHTML = `
+    ${ideas.map((item) => `
+      <button type="button" class="image-idea ${aiSearchImageDataUrl === item.src ? "selected" : ""}" data-search-image-idea="${escapeAttr(item.id)}" title="${escapeAttr(item.title)}">
+        <img src="${escapeAttr(item.src)}" alt="${escapeAttr(item.title)}">
+      </button>
+    `).join("")}
+    <label class="image-idea-upload" title="Subir imagen">
+      + IMG
+      <input id="aiSearchImageInputMirror" type="file" accept="image/*" hidden>
+    </label>
+  `;
+}
+
+function extractedSearchChips(query) {
+  const value = normalizeText(query);
+  const chips = [];
+  if (value.includes("casa")) chips.push("Casa");
+  if (value.includes("apartamento") || value.includes("depto")) chips.push("Apartamento");
+  if (value.includes("jardin")) chips.push("Jardín");
+  if (value.includes("piscina") || value.includes("pileta")) chips.push("Piscina");
+  if (value.includes("familia") || value.includes("colegio")) chips.push("Familia");
+  if (value.includes("terraza")) chips.push("Terraza");
+  if (value.includes("carrasco")) chips.push("Carrasco");
+  if (value.includes("pocitos")) chips.push("Pocitos");
+  return chips.slice(0, 6);
+}
+
+function propertyBadges(property) {
+  const badges = [];
+  const currentYear = new Date().getFullYear();
+  if (Number(property.yearBuilt) && Number(property.yearBuilt) >= currentYear - 2) badges.push({ label: "Estrenar", kind: "new" });
+  if (property.score && Number(property.score) >= 8) badges.push({ label: "Score Alto", kind: "score" });
+  if (property.analysis || property.score) badges.push({ label: "Análisis IA", kind: "ai" });
+  if (verifiedDocumentTypes(property).length >= 3) badges.push({ label: "Docs OK", kind: "docs" });
+  const usdM2 = pricePerM2(property);
+  if (usdM2 && usdM2 < 2200) badges.push({ label: "Oportunidad", kind: "deal" });
+  if (!badges.length) badges.push({ label: "Nueva", kind: "new" });
+  return badges.slice(0, 3);
+}
+
+function rememberSearch(query) {
+  const value = query.trim();
+  if (!value) return;
+  state.recentSearches = uniqueStrings([value, ...(state.recentSearches || [])]).slice(0, 5);
+}
+
 function renderEditorTabs() {
+  if (!["import", "data", "media", "analysis", "publish"].includes(state.editorTab)) state.editorTab = "import";
   $$("[data-editor-tab]").forEach((button) => button.classList.toggle("active", button.dataset.editorTab === state.editorTab));
-  $$("[data-editor-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.editorPanel !== state.editorTab));
+  $$(".import-step").forEach((panel) => panel.classList.toggle("hidden", state.editorTab !== "import"));
+  $$(".data-step, .rooms-step").forEach((panel) => panel.classList.toggle("hidden", state.editorTab !== "data"));
+  $$(".media-step").forEach((panel) => panel.classList.toggle("hidden", state.editorTab !== "media"));
+  $$(".analysis-step").forEach((panel) => panel.classList.toggle("hidden", state.editorTab !== "analysis"));
+  $$(".publish-step").forEach((panel) => panel.classList.toggle("hidden", state.editorTab !== "publish"));
+}
+
+function renderEditorProgress() {
+  const el = $("#editorProgress");
+  const property = selectedProperty();
+  if (!el || !property) return;
+  const complete = propertyCompleteness(property);
+  const steps = [
+    { label: "Importar", tab: "import", done: Boolean(property.sourceUrl || state.editorMode === "edit"), active: state.editorTab === "import" },
+    { label: "Datos básicos", tab: "data", done: complete.dataOk, active: state.editorTab === "data" },
+    { label: "Fotos", tab: "media", done: complete.photosOk, active: state.editorTab === "media" },
+    { label: "Análisis", tab: "analysis", done: complete.analysisOk, active: state.editorTab === "analysis" },
+    { label: "Publicar", tab: "publish", done: property.status === "published", active: state.editorTab === "publish" },
+  ];
+  el.innerHTML = `
+    <div class="editor-progress-head">
+      <strong>${escapeHtml(property.title || "Nueva propiedad")}</strong>
+      <span>${complete.percent}% completa</span>
+    </div>
+    <div class="progress-rail">
+      ${steps.map((step, index) => `
+        <button class="progress-step ${step.done ? "done" : ""} ${step.active ? "active" : ""}" data-progress-tab="${step.tab}" type="button">
+          <span>${step.done ? "✓" : index + 1}</span>
+          ${escapeHtml(step.label)}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderPublishChecklist() {
+  const el = $("#publishChecklist");
+  const property = selectedProperty();
+  if (!el || !property) return;
+  const complete = propertyCompleteness(property);
+  const rows = [
+    ["Datos básicos completos", complete.dataOk],
+    ["Al menos 8 fotos", complete.photosOk],
+    ["Score o análisis IA", complete.analysisOk],
+    ["Costos/documentos cargados", complete.docsOk],
+    ["Publicada en portal cliente", property.status === "published"],
+  ];
+  el.innerHTML = `
+    <div class="checklist-head">
+      <div>
+        <p class="eyebrow">Revisión final</p>
+        <h3>Checklist de publicación</h3>
+      </div>
+      <span class="status-pill ${complete.percent >= 80 ? "" : "warn"}">${complete.percent}% completa</span>
+    </div>
+    <div class="checklist-grid">
+      ${rows.map(([label, done]) => `<div class="${done ? "done" : "pending"}"><span>${done ? "✓" : "!"}</span>${escapeHtml(label)}</div>`).join("")}
+    </div>
+    ${complete.missing.length ? `<p class="checklist-missing">Pendientes: ${escapeHtml(complete.missing.slice(0, 6).join(", "))}</p>` : ""}
+  `;
+}
+
+function renderWizardControls() {
+  const el = $("#wizardControls");
+  const property = selectedProperty();
+  if (!el || !property) return;
+  const index = Math.max(0, EDITOR_STEPS.indexOf(state.editorTab));
+  const previous = EDITOR_STEPS[index - 1];
+  const next = EDITOR_STEPS[index + 1];
+  const complete = propertyCompleteness(property);
+  const canPublish = complete.percent >= 80 || property.status === "published";
+  el.innerHTML = `
+    <div class="wizard-controls-meta">
+      <strong>Paso ${index + 1} de ${EDITOR_STEPS.length}: ${escapeHtml(EDITOR_STEP_LABELS[state.editorTab] || "Carga")}</strong>
+      <span>${stepHelperText(state.editorTab, property, complete)}</span>
+    </div>
+    <div class="wizard-controls-actions">
+      <button type="button" data-wizard-prev ${previous ? "" : "disabled"}>Atrás</button>
+      ${next
+        ? `<button type="button" class="primary" data-wizard-next>Siguiente</button>`
+        : `<button type="button" class="primary" data-wizard-publish ${canPublish ? "" : "disabled"}>${property.status === "published" ? "Publicado" : "Publicar ahora"}</button>`}
+    </div>
+  `;
+}
+
+function stepHelperText(step, property, complete) {
+  if (step === "import") return "Importá desde un link o empezá manualmente.";
+  if (step === "data") return complete.dataOk ? "Los datos base están completos." : `Te falta: ${complete.missing.slice(0, 3).join(", ") || "datos básicos"}.`;
+  if (step === "media") return property.photos.length >= 8 ? `${property.photos.length} fotos cargadas.` : `Subí ${Math.max(0, 8 - property.photos.length)} fotos más para un análisis sólido.`;
+  if (step === "analysis") return complete.analysisOk ? "Análisis listo para revisar." : "Corré el análisis IA o ajustá el score manual.";
+  return complete.percent >= 80 ? "La ficha está lista para publicar." : "Completá los pendientes antes de publicar.";
+}
+
+function goWizard(delta) {
+  const index = Math.max(0, EDITOR_STEPS.indexOf(state.editorTab));
+  const nextIndex = Math.max(0, Math.min(EDITOR_STEPS.length - 1, index + delta));
+  state.editorTab = EDITOR_STEPS[nextIndex];
+  saveState();
+  renderAll();
+  $("#view-editor")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
 function renderActivePropertySelectors() {
@@ -710,55 +1367,123 @@ function openPropertyModal(id) {
 }
 
 function renderPropertyModal() {
-  const property = selectedProperty();
+  const property = state.properties.find((item) => item.id === state.selectedId) || selectedProperty();
   const content = $("#propertyModalContent");
   if (!property || !content) return;
-  const cover = photoSrc(property.photos[0]);
   const docs = verifiedDocumentTypes(property);
   $("#modalTitle").textContent = property.title || "Propiedad";
-  const photos = property.photos.filter((photo) => photoSrc(photo)).slice(0, 12);
+  const photos = property.photos.filter((photo) => photoSrc(photo));
+  const roomsById = new Map((property.rooms || []).map((item) => [item.id, item]));
+  const score = property.score ? Number(property.score).toFixed(1) : "--";
+  const monthlyCosts = [
+    ["UTE", Number(property.uteAvg || 0)],
+    ["OSE", Number(property.oseAvg || 0)],
+    ["Antel", Number(property.antelAvg || 0)],
+    ["Gastos comunes", Number(property.commonFees || 0)],
+    ["Seguro hogar", Number(property.insuranceAvg || 0)],
+  ].filter(([, value]) => value);
+  const monthlyTotal = monthlyCosts.reduce((sum, [, value]) => sum + value, 0);
+  const yearlyCosts = [
+    ["Contribución", Number(property.contribucionAnnual || 0)],
+    ["Primaria", Number(property.primariaAnnual || 0)],
+  ].filter(([, value]) => value);
+  const warnings = [
+    ...(property.analysis?.risks || []),
+    ...(property.analysis?.inconsistencies || []),
+    ...(property.scrapeReview?.warnings || []),
+  ].slice(0, 5);
+  const strengths = (property.analysis?.strengths || []).slice(0, 5);
   content.innerHTML = `
-    <div class="modal-layout">
+    <div class="modal-sticky-summary">
       <div>
-        <div class="modal-gallery">
-          ${photos.length ? photos.map((photo) => `<img src="${photoSrc(photo)}" alt="">`).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
-        </div>
-        ${property.videos.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, index) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${index + 1}</a>`).join(" ")}</div></div>` : ""}
-        ${property.description ? `<div class="modal-section"><h3>Descripción</h3><p class="public-description">${escapeHtml(property.description)}</p></div>` : ""}
-        <div class="modal-section">
-          <h3>Información de la propiedad</h3>
-          <div class="extra-list">
-            ${propertyInfoRows(property)}
-            ${renderPublicExtrasRows(property)}
+        <h2>${escapeHtml(property.title || "Propiedad sin titulo")}</h2>
+        <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}, ${escapeHtml(property.city || "Uruguay")}</span>
+      </div>
+      <div class="summary-pills">
+        <span>${formatUsd(Number(property.price))}</span>
+        ${property.score ? `<span>${scoreDial(property.score)} Score OD</span>` : ""}
+        <span>${property.bedrooms || 0} dorm.</span>
+        <span>${property.bathrooms || 0} baños</span>
+        <span>${builtAreaForValue(property) || "--"} m²</span>
+      </div>
+    </div>
+    <div class="modal-tabs">
+      ${["Fotos", "Detalles", "Ubicación", "Costos", "Análisis IA"].map((label, index) => `<button class="${index === 0 ? "active" : ""}" data-modal-tab="${index}" type="button">${label}</button>`).join("")}
+    </div>
+    <section class="modal-tab-panel active" data-modal-panel="0">
+      <div class="modal-gallery modern">
+        ${photos.length ? photos.slice(0, 16).map((photo, index) => {
+          const roomItem = roomsById.get(photo.roomId);
+          return `
+            <figure class="${index === 0 ? "featured" : ""}">
+              <img src="${photoSrc(photo)}" alt="${escapeAttr(roomItem?.name || property.title || "Foto de propiedad")}">
+              <figcaption>${escapeHtml(roomItem?.name || photo.name || "Foto de propiedad")}</figcaption>
+            </figure>
+          `;
+        }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
+      </div>
+      ${property.videos.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, index) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${index + 1}</a>`).join(" ")}</div></div>` : ""}
+    </section>
+    <section class="modal-tab-panel" data-modal-panel="1">
+      <div class="detail-metrics">
+        <div><strong>${formatUsd(Number(property.price))}</strong><span>Precio</span></div>
+        <div><strong>${pricePerM2(property) ? `USD ${pricePerM2(property).toLocaleString("es-UY")}` : "--"}</strong><span>m² edificado</span></div>
+        <div><strong>${builtAreaForValue(property) || "--"} m²</strong><span>Construidos</span></div>
+        <div><strong>${property.landArea || "--"} m²</strong><span>Terreno</span></div>
+      </div>
+      ${property.description ? `<div class="modal-section"><h3>Descripción</h3><p class="public-description">${escapeHtml(property.description)}</p></div>` : ""}
+      <div class="modal-section">
+        <h3>Información</h3>
+        <div class="extra-list">${propertyInfoRows(property)}${renderPublicExtrasRows(property)}</div>
+      </div>
+      <div class="modal-actions-row">
+        <button class="primary" type="button">Contactar vendedor</button>
+        <button type="button">Compartir propiedad</button>
+      </div>
+    </section>
+    <section class="modal-tab-panel" data-modal-panel="2">
+      <div class="location-panel">
+        <div class="location-map">
+          <div class="fallback-map">
+            <div class="fallback-map-label"><strong>${escapeHtml(property.neighborhood || "Montevideo")}</strong><span>${escapeHtml(property.address || property.city || "Ubicación aproximada")}</span></div>
+            <button class="fallback-pin modal-pin" style="left:50%;top:50%" type="button"><span>${escapeHtml(property.neighborhood || "OD")}</span></button>
           </div>
         </div>
-      </div>
-
-      <div>
         <div class="modal-section">
-          <p class="eyebrow">Resumen</p>
-          <h2>${escapeHtml(property.title || "Propiedad sin titulo")}</h2>
-          <div class="meta">${escapeHtml(property.address || property.neighborhood || "Ubicación pendiente")} · ${escapeHtml(property.city || "")}</div>
-        <div class="price-row">
-          <span>${formatUsd(Number(property.price))}</span>
-          <span class="status-pill">${property.score ? Number(property.score).toFixed(1) : "--"} OD</span>
+          <h3>Ubicación</h3>
+          <div class="extra-list">
+            <div class="extra-row"><span>Dirección</span><strong>${escapeHtml(property.address || "Pendiente")}</strong></div>
+            <div class="extra-row"><span>Barrio</span><strong>${escapeHtml(property.neighborhood || "Pendiente")}</strong></div>
+            <div class="extra-row"><span>Ciudad</span><strong>${escapeHtml(property.city || "Uruguay")}</strong></div>
+            <div class="extra-row"><span>Coordenadas</span><strong>${property.lat && property.lng ? `${property.lat}, ${property.lng}` : "Pendiente"}</strong></div>
+          </div>
+          ${property.mapUrl ? `<a class="source-map-link" href="${escapeAttr(property.mapUrl)}" target="_blank" rel="noreferrer">Abrir mapa fuente</a>` : ""}
         </div>
-        <div class="detail-stats">
-          <span class="status-pill">${property.bedrooms || 0} dorm.</span>
-          <span class="status-pill">${property.bathrooms || 0} banos</span>
-          <span class="status-pill">${builtAreaForValue(property) || "--"} m² edif.</span>
-          <span class="status-pill">${property.landArea || "--"} m² terreno</span>
-          <span class="status-pill">${pricePerM2Label(property)}</span>
+      </div>
+    </section>
+    <section class="modal-tab-panel" data-modal-panel="3">
+      <div class="cost-layout">
+        <div class="modal-section">
+          <h3>Costos mensuales</h3>
+          ${monthlyCosts.length ? `
+            <div class="cost-bars">
+              ${monthlyCosts.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><div class="bar"><span style="width:${Math.max(8, Math.min(100, (value / Math.max(monthlyTotal, 1)) * 100))}%"></span></div><strong>${formatUsd(value)}</strong></div>`).join("")}
+            </div>
+            <div class="cost-total">Total estimado: <strong>${formatUsd(monthlyTotal)}</strong></div>
+          ` : `<p class="public-description">No hay costos mensuales declarados todavía.</p>`}
         </div>
-        <div class="doc-badges">
-          ${docs.length ? docs.map((doc) => `<span class="status-pill">${escapeHtml(doc)}</span>`).join("") : `<span class="status-pill warn">Costos sin verificar</span>`}
+        <div class="modal-section">
+          <h3>Documentación</h3>
+          <div class="doc-badges">${docs.length ? docs.map((doc) => `<span class="status-pill">${escapeHtml(doc)}</span>`).join("") : `<span class="status-pill warn">Costos sin verificar</span>`}</div>
+          ${yearlyCosts.length ? `<div class="extra-list">${yearlyCosts.map(([label, value]) => `<div class="extra-row"><span>${escapeHtml(label)}</span><strong>${formatUsd(value)} / año</strong></div>`).join("")}</div>` : ""}
         </div>
-        ${property.mapUrl ? `<a class="source-map-link" href="${escapeAttr(property.mapUrl)}" target="_blank" rel="noreferrer">Abrir mapa fuente</a>` : ""}
-        </div>
-
+      </div>
+    </section>
+    <section class="modal-tab-panel" data-modal-panel="4">
+      <div class="ai-detail-layout">
         <div class="modal-section score-public">
           <h3>Score OD</h3>
-          <div class="score-value">${property.score ? Number(property.score).toFixed(1) : "--"}</div>
+          <div class="score-value">${score}</div>
           ${property.analysis?.summary ? `<p>${escapeHtml(property.analysis.summary)}</p>` : `<p class="public-description">Score pendiente o sin explicación cargada.</p>`}
           ${property.analysis?.categories ? `<div class="score-bars">${Object.entries(property.analysis.categories).map(([key, value]) => `
             <div class="bar-row">
@@ -768,15 +1493,14 @@ function renderPropertyModal() {
             </div>
           `).join("")}</div>` : ""}
         </div>
-
         <div class="modal-section">
-          <h3>Documentación y costos</h3>
-          <div class="extra-list">
-            ${costRows(property)}
-          </div>
+          <h3>Fortalezas</h3>
+          ${strengths.length ? `<ul>${strengths.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="public-description">Sin fortalezas IA cargadas todavía.</p>`}
+          <h3>Puntos a considerar</h3>
+          ${warnings.length ? `<ul>${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="public-description">Sin alertas cargadas.</p>`}
         </div>
       </div>
-    </div>
+    </section>
   `;
   renderChat();
 }
@@ -909,6 +1633,8 @@ function renderPhotos() {
   property.photos.forEach((photo) => {
     const card = document.createElement("div");
     card.className = "photo-card";
+    card.draggable = true;
+    card.dataset.photoCard = photo.id;
     card.innerHTML = `
       <span class="photo-origin">${escapeHtml(photo.source || "manual")}</span>
       <img src="${photoSrc(photo)}" alt="">
@@ -1030,7 +1756,7 @@ function renderPlans() {
 function renderScore() {
   const property = selectedProperty();
   $("#scorePropertyTitle").textContent = property?.title || "Propiedad seleccionada";
-  $("#scoreValue").textContent = property.score ? Number(property.score).toFixed(1) : "--";
+  $("#scoreValue").innerHTML = property.score ? scoreDial(property.score, "large") : "--";
   $("#scoreLabel").textContent = property.score ? "Score calculado" : "Sin calcular";
   $("#scoreLabel").className = property.score ? "status-pill" : "status-pill warn";
   $("#manualScoreInput").value = property.score || "";
@@ -1192,33 +1918,62 @@ async function filesToDataUrls(files) {
   })));
 }
 
-async function callOpenRouter({ model, messages, temperature = 0.2 }) {
-  const selectedModel = model || settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+async function callOpenRouter({ model, functionType = "search", messages, temperature = 0.2 }) {
+  const selectedModel = model || modelForFunction(functionType);
+  const started = Date.now();
   const response = await fetch(apiUrl("/api/openrouter"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(settings.apiKey ? { "X-OpenRouter-Key": settings.apiKey } : {}),
     },
     body: JSON.stringify({
-      apiKey: settings.apiKey || "",
-      model: selectedModel,
-      fallbackModels: modelFallbacksFor(selectedModel),
+      functionType,
+      ...(model ? { model: selectedModel, fallbackModels: modelFallbacksFor(functionType, selectedModel) } : {}),
       temperature,
       messages,
     }),
   });
   if (!response.ok) {
     const text = await response.text();
+    updateModelStatus(functionType, { status: "failed" });
     throw new Error(humanAiError(response.status, text));
   }
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter no devolvio contenido.");
-  return JSON.parse(content);
+  const parsed = JSON.parse(content);
+  const usedModel = data.meta?.usedModel || selectedModel;
+  recordAiUsage(functionType, data.meta || { usedModel, durationMs: Date.now() - started });
+  updateModelStatus(functionType, {
+    status: data.meta?.fallbackUsed ? "fallback" : "active",
+    lastSuccessfulModel: usedModel,
+    lastSuccessAt: new Date().toISOString(),
+    averageMs: averageMsFor(functionType, data.meta?.durationMs || Date.now() - started),
+  });
+  parsed.__meta = data.meta || { usedModel, attemptedModels: [selectedModel], fallbackUsed: false, durationMs: Date.now() - started };
+  return parsed;
 }
 
-function modelFallbacksFor(selectedModel) {
-  return MODEL_PRESETS.filter((candidate) => candidate !== selectedModel);
+function modelForFunction(functionType) {
+  return aiModelConfig.functions?.[functionType]?.activeModel || settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+}
+
+function modelFallbacksFor(functionType, selectedModel) {
+  const fallbacks = aiModelConfig.functions?.[functionType]?.fallbacks || [];
+  return uniqueStrings([...fallbacks, ...MODEL_PRESETS]).filter((candidate) => candidate !== selectedModel);
+}
+
+function updateModelStatus(functionType, patch) {
+  if (!aiModelConfig.functions?.[functionType]) return;
+  aiModelConfig.functions[functionType] = { ...aiModelConfig.functions[functionType], ...patch };
+  localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiModelConfig));
+  renderSettings();
+}
+
+function averageMsFor(functionType, durationMs) {
+  const current = Number(aiModelConfig.functions?.[functionType]?.averageMs || 0);
+  return current ? Math.round((current * 0.7) + (durationMs * 0.3)) : Math.round(durationMs);
 }
 
 function humanAiError(status, text = "") {
@@ -1286,6 +2041,11 @@ function modelSupportsVision(model = "") {
   return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava"].some((token) => value.includes(token));
 }
 
+function modelQueueSupportsVision(functionType) {
+  const active = modelForFunction(functionType);
+  return [active, ...modelFallbacksFor(functionType, active)].some(modelSupportsVision);
+}
+
 async function runPhotoAnalysis() {
   const property = selectedProperty();
   if (!property.photos.length) {
@@ -1294,10 +2054,21 @@ async function runPhotoAnalysis() {
   }
   $("#runAiBtn").disabled = true;
   $("#runAiBtn").textContent = "Analizando fotos...";
+  setOperationProgress("#analysisProgress", {
+    title: "Preparando análisis",
+    detail: "Tomo datos principales, costos cargados y hasta 8 fotos representativas.",
+    percent: 8,
+  });
   try {
+    await nextFrameDelay();
     const limitedPhotos = property.photos.slice(0, 8);
-    const chosenModel = settings.model || DEFAULT_MODEL;
-    const canSeeImages = modelSupportsVision(chosenModel);
+    const chosenModel = modelForFunction("vision");
+    const canSeeImages = modelQueueSupportsVision("vision");
+    setOperationProgress("#analysisProgress", {
+      title: "Leyendo fotos",
+      detail: canSeeImages ? `Analizando ${limitedPhotos.length} fotos con el modelo visual disponible.` : "El modelo actual no ve imágenes; uso metadata y datos cargados.",
+      percent: 28,
+    });
     const promptText = `Analiza esta propiedad owner-direct y calcula un score tecnico-comercial de 0 a 10 usando datos cargados ${canSeeImages ? "y fotos." : "y metadata de fotos. El modelo configurado no esta marcado como vision, por lo que este es un score basico sin inspeccion visual directa."}
 
 Devuelve JSON valido con esta forma exacta:
@@ -1337,15 +2108,38 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
       })) : []),
     ] : promptText;
 
+    setOperationProgress("#analysisProgress", {
+      title: "Calculando score",
+      detail: "Evaluando distribución, terminaciones, estado, luminosidad, exterior y documentación visual.",
+      percent: 54,
+    });
     const analysis = await callOpenRouter({
-      model: chosenModel,
+      functionType: "vision",
       messages: [{ role: "user", content }],
+    });
+    setOperationProgress("#analysisProgress", {
+      title: "Generando informe",
+      detail: "Ordenando fortalezas, riesgos, fotos recomendadas e impacto estimado en valor.",
+      percent: 86,
     });
     property.analysis = analysis;
     property.score = Number(analysis.global_score || 0);
     saveState();
     renderAll();
+    setOperationProgress("#analysisProgress", {
+      title: "Score generado",
+      detail: `Análisis listo. Score OD ${property.score ? Number(property.score).toFixed(1) : "--"}. Podés revisar el informe o publicar.`,
+      percent: 100,
+      status: "done",
+    });
+    showToast("Análisis listo");
   } catch (error) {
+    setOperationProgress("#analysisProgress", {
+      title: "No se pudo analizar",
+      detail: error.message,
+      percent: 100,
+      status: "error",
+    });
     alert(error.message);
   } finally {
     $("#runAiBtn").disabled = false;
@@ -1356,8 +2150,8 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
 async function runPlanAnalysis() {
   const property = selectedProperty();
   const imagePlans = property.plans.filter((plan) => plan.dataUrl?.startsWith("data:image"));
-  const chosenModel = settings.planModel || settings.model || DEFAULT_MODEL;
-  if (!modelSupportsVision(chosenModel)) {
+  const chosenModel = modelForFunction("plan");
+  if (!modelQueueSupportsVision("plan")) {
     alert("El analisis de planos necesita un modelo con vision. Para esta demo cambia el modelo de planos a uno con vision, por ejemplo openai/gpt-4o-mini, o usa ajuste manual.");
     return;
   }
@@ -1390,7 +2184,7 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`,
     ];
 
     const planAnalysis = await callOpenRouter({
-      model: chosenModel,
+      functionType: "plan",
       messages: [{ role: "user", content }],
     });
     property.planAnalysis = planAnalysis;
@@ -1447,7 +2241,7 @@ function startCreateProperty() {
   }
   state.editorMode = "create";
   state.draftProperty = createBlankProperty("__draft");
-  state.editorTab = "data";
+  state.editorTab = "import";
   saveState();
   setView("editor");
 }
@@ -1555,6 +2349,19 @@ function publishProperty(id, status = "published") {
   state.selectedId = id;
   saveState();
   renderAll();
+  if (status === "published") {
+    showToast("Publicada");
+    launchConfetti();
+  }
+}
+
+function launchConfetti() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const root = document.createElement("div");
+  root.className = "confetti";
+  root.innerHTML = Array.from({ length: 30 }).map((_, index) => `<i style="--x:${Math.random() * 100}vw;--d:${Math.random() * 1.2 + .4}s;--r:${Math.random() * 360}deg;--c:${index % 3}"></i>`).join("");
+  document.body.appendChild(root);
+  setTimeout(() => root.remove(), 1600);
 }
 
 async function runScrape() {
@@ -1566,9 +2373,19 @@ async function runScrape() {
   $("#scrapeBtn").disabled = true;
   $("#scrapeBtn").textContent = "Scrapeando...";
   $("#scrapeOutput").classList.remove("hidden");
-  $("#scrapeOutput").textContent = "Leyendo la publicación y extrayendo datos...";
+  $("#scrapeOutput").textContent = "Iniciando importación asistida...";
+  setOperationProgress("#scrapeProgress", {
+    title: "Leyendo publicación",
+    detail: "Estoy abriendo el link y buscando título, precio, ubicación, atributos y galería.",
+    percent: 12,
+  });
   try {
     preparePropertyForScrape(url);
+    setOperationProgress("#scrapeProgress", {
+      title: "Extrayendo datos",
+      detail: "Conectando con el scraper y detectando la plataforma de origen.",
+      percent: 24,
+    });
     const response = await fetch(apiUrl("/api/scrape"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1577,13 +2394,34 @@ async function runScrape() {
     if (!response.ok) throw new Error(await response.text());
     const scraped = await response.json();
     $("#scrapeOutput").textContent = "Datos scrapeados. Guardando fotos y atributos...";
+    setOperationProgress("#scrapeProgress", {
+      title: "Guardando ficha",
+      detail: "Ya se scrapeó la publicación. Ahora copio datos, fotos, videos y atributos a esta propiedad.",
+      percent: 48,
+    });
     applyScrapedData(scraped);
     $("#scrapeOutput").textContent = "Filtrando fotos importadas automáticamente...";
+    setOperationProgress("#scrapeProgress", {
+      title: "Filtrando fotos",
+      detail: "Estoy quitando logos, mapas, banners y fotos que no parecen de la propiedad.",
+      percent: 68,
+    });
     const filterReport = await filterImportedPhotos({ silent: true });
     const property = selectedProperty();
     $("#scrapeOutput").textContent = "Validando coherencia con IA...";
+    setOperationProgress("#scrapeProgress", {
+      title: "Validando coherencia",
+      detail: "Reviso que dormitorios, baños, m², barrio y fotos tengan sentido para Uruguay.",
+      percent: 84,
+    });
     const review = await validateScrapedProperty(property);
     const missing = missingFields(property);
+    setOperationProgress("#scrapeProgress", {
+      title: "Importación lista",
+      detail: "Se completó el scraping. Podés avanzar a Datos básicos para revisar y corregir lo importado.",
+      percent: 100,
+      status: "done",
+    });
     $("#scrapeOutput").innerHTML = `
       <strong>Importación lista desde ${escapeHtml(scraped.platform || "link externo")}.</strong><br>
       Se cargaron título, descripción, precio, ubicación, atributos, ${scraped.photos?.length || 0} fotos y ${scraped.videos?.length || 0} videos detectados.
@@ -1591,8 +2429,17 @@ async function runScrape() {
       ${review ? `<br><br><strong>Chequeo IA/coherencia:</strong><br>${escapeHtml(review)}` : ""}
       ${missing.length ? `<br><br><strong>Faltantes para pedir al propietario:</strong><br>${missing.map((item) => `- ${escapeHtml(item)}`).join("<br>")}` : "<br><br>La ficha básica quedó completa."}
     `;
+    state.editorTab = "data";
+    saveState();
+    showToast("Importación lista. Revisá Datos básicos.");
     renderAll();
   } catch (error) {
+    setOperationProgress("#scrapeProgress", {
+      title: "No se pudo completar",
+      detail: "El link no se pudo importar automáticamente. Podés intentar de nuevo o cargar la propiedad manualmente.",
+      percent: 100,
+      status: "error",
+    });
     $("#scrapeOutput").innerHTML = `<strong>No se pudo scrapear automáticamente.</strong><br>${escapeHtml(error.message)}<br><br>Podés cargar manualmente o copiar/pegar datos desde la publicación.`;
   } finally {
     $("#scrapeBtn").disabled = false;
@@ -1635,8 +2482,8 @@ async function validateScrapedProperty(property) {
     return `Chequeo automático local: ${local.summary}`;
   }
   try {
-    const chosenModel = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
-    const canSeeImages = modelSupportsVision(chosenModel);
+    const chosenModel = modelForFunction("vision");
+    const canSeeImages = modelQueueSupportsVision("vision");
     const photos = property.photos.slice(0, 12);
     const prompt = `Revisá una ficha scrapeada para una plataforma owner-direct en Uruguay. Validá coherencia de precio, m² edificados, m² terreno, dormitorios, baños, barrio, fotos y descripciones. Si podés, segmentá fotos por ambiente. Devuelve JSON válido:
 {
@@ -1658,7 +2505,7 @@ ${JSON.stringify(local, null, 2)}`;
       ...photos.map((photo) => ({ type: "image_url", image_url: { url: photoSrc(photo) } })),
     ] : prompt;
     const result = await callOpenRouter({
-      model: chosenModel,
+      functionType: "vision",
       messages: [{ role: "user", content }],
       temperature: 0.1,
     });
@@ -1707,28 +2554,51 @@ function applyScrapeReview(property, review) {
 
 async function testAiConnection() {
   settings.apiKey = $("#apiKeyInput").value.trim();
-  settings.model = $("#modelInput").value.trim() || DEFAULT_MODEL;
-  settings.planModel = $("#planModelInput").value.trim() || settings.model;
-  saveSettings();
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
   $("#testAiBtn").disabled = true;
   $("#testAiBtn").textContent = "Probando...";
   $("#aiTestOutput").classList.remove("hidden");
-  $("#aiTestOutput").textContent = "Conectando con OpenRouter...";
+  $("#aiTestOutput").textContent = "Probando modelos activos...";
   try {
-    const result = await callOpenRouter({
-      model: settings.model,
-      messages: [{
-        role: "user",
-        content: `Respondé solo JSON válido: {"ok":true,"message":"conexion lista","model":"${settings.model}"}`,
-      }],
-    });
-    $("#aiTestOutput").innerHTML = `<strong>IA conectada.</strong><br>${escapeHtml(result.message || "OpenRouter respondió correctamente.")}`;
+    const results = [];
+    for (const key of Object.keys(AI_FUNCTIONS)) {
+      results.push(await testModelFunction(key));
+    }
+    $("#aiTestOutput").innerHTML = `<strong>Chequeo terminado.</strong><br>${results.map((item) => `${escapeHtml(AI_FUNCTIONS[item.functionType].label)}: ${item.ok ? "OK" : "falló"} · ${escapeHtml(item.model || item.error || "")}`).join("<br>")}`;
   } catch (error) {
     $("#aiTestOutput").innerHTML = `<strong>No conectó todavía.</strong><br>${escapeHtml(error.message)}`;
   } finally {
     $("#testAiBtn").disabled = false;
     $("#testAiBtn").textContent = "Probar IA";
+  }
+}
+
+async function testModelFunction(functionType, model = null) {
+  const item = aiModelConfig.functions[functionType];
+  const target = model || item.activeModel;
+  updateModelStatus(functionType, { status: "testing" });
+  const started = Date.now();
+  try {
+    const response = await fetch(apiUrl("/api/openrouter/test"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(settings.apiKey ? { "X-OpenRouter-Key": settings.apiKey } : {}) },
+      body: JSON.stringify({ model: target, functionType }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Modelo no disponible");
+    updateModelStatus(functionType, {
+      status: "active",
+      activeModel: target,
+      lastSuccessfulModel: data.meta?.usedModel || target,
+      lastSuccessAt: new Date().toISOString(),
+      averageMs: averageMsFor(functionType, data.meta?.durationMs || Date.now() - started),
+    });
+    saveAiModelConfig();
+    return { ok: true, functionType, model: data.meta?.usedModel || target };
+  } catch (error) {
+    updateModelStatus(functionType, { status: "failed" });
+    return { ok: false, functionType, model: target, error: error.message };
   }
 }
 
@@ -1747,7 +2617,7 @@ async function sendChatMessage(text) {
   submit.textContent = "Pensando...";
   try {
     const result = await callOpenRouter({
-      model: settings.model || DEFAULT_MODEL,
+      functionType: "search",
       messages: [
         {
           role: "system",
@@ -1809,7 +2679,11 @@ async function runAiPropertySearch() {
   if (!query && !aiSearchImageDataUrl) return;
   $("#aiSearchBtn").disabled = true;
   $("#aiSearchBtn").textContent = "Buscando...";
+  setAiSearchProgress("Analizando tu búsqueda...");
+  rememberSearch(query);
   try {
+    await nextFrameDelay();
+    setAiSearchProgress("Encontrando propiedades similares...");
     const source = state.properties.filter((property) => property.status === "published");
     const summaries = source.map((property) => ({
       id: property.id,
@@ -1829,7 +2703,7 @@ async function runAiPropertySearch() {
       photo_count: property.photos.length,
       extras: property.extras,
     }));
-    const model = settings.model || serverConfig.defaultModel || DEFAULT_MODEL;
+    const model = modelForFunction(aiSearchImageDataUrl ? "vision" : "search");
     const visualCandidates = source
       .filter((property) => photoSrc(property.photos[0]))
       .slice(0, 10)
@@ -1858,7 +2732,7 @@ ${JSON.stringify(summaries, null, 2)}
 
 Fotos candidatas incluidas en este mensaje, en orden:
 ${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: item.id, title: item.title })), null, 2)}`;
-    const content = (aiSearchImageDataUrl || visualCandidates.length) && modelSupportsVision(model)
+    const content = (aiSearchImageDataUrl || visualCandidates.length) && modelQueueSupportsVision(aiSearchImageDataUrl ? "vision" : "search")
       ? [
         { type: "text", text: prompt },
         ...(aiSearchImageDataUrl ? [{ type: "text", text: "Imagen de referencia del comprador:" }, { type: "image_url", image_url: { url: aiSearchImageDataUrl } }] : []),
@@ -1869,9 +2743,10 @@ ${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: 
       ]
       : prompt;
     const result = await callOpenRouter({
-      model,
+      functionType: aiSearchImageDataUrl ? "vision" : "search",
       messages: [{ role: "user", content }],
     });
+    setAiSearchProgress("Aplicando filtros...");
     const validIds = new Set(source.map((property) => property.id));
     state.aiSearchIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
     state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
@@ -1890,9 +2765,23 @@ ${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: 
     saveState();
     renderMarketplace();
   } finally {
+    setAiSearchProgress("");
     $("#aiSearchBtn").disabled = false;
     $("#aiSearchBtn").textContent = "Buscar con IA";
   }
+}
+
+function setAiSearchProgress(message) {
+  const progress = $("#aiSearchProgress");
+  if (!progress) return;
+  document.body.classList.toggle("ai-searching", Boolean(message));
+  progress.classList.toggle("hidden", !message);
+  const label = progress.querySelector("strong");
+  if (label) label.textContent = message;
+}
+
+function nextFrameDelay() {
+  return new Promise((resolve) => setTimeout(resolve, 180));
 }
 
 function clearAiSearch() {
@@ -1903,14 +2792,22 @@ function clearAiSearch() {
   $("#aiSearchImageInput").value = "";
   renderAiSearchPreview();
   saveState();
+  setSearchPanelOpen(false);
   renderMarketplace();
 }
 
 function renderAiSearchPreview() {
   const preview = $("#aiSearchImagePreview");
-  if (!preview) return;
-  preview.classList.toggle("hidden", !aiSearchImageDataUrl);
-  preview.innerHTML = aiSearchImageDataUrl ? `<img src="${aiSearchImageDataUrl}" alt=""><span>Imagen usada como referencia visual</span>` : "";
+  const thumb = $("#aiSearchThumb");
+  if (preview) {
+    preview.classList.toggle("hidden", !aiSearchImageDataUrl);
+    preview.innerHTML = aiSearchImageDataUrl ? `<img src="${aiSearchImageDataUrl}" alt=""><span>Imagen usada como referencia visual</span>` : "";
+  }
+  if (thumb) {
+    thumb.classList.toggle("hidden", !aiSearchImageDataUrl);
+    thumb.innerHTML = aiSearchImageDataUrl ? `<img src="${aiSearchImageDataUrl}" alt="">` : "";
+  }
+  renderSearchImageIdeas();
 }
 
 function deletePhotosByIds(ids) {
@@ -2038,8 +2935,8 @@ async function filterImportedPhotos({ silent = false } = {}) {
   let mode = "limpieza basica";
   removeIds = imported.filter((photo) => !looksLikePropertyPhoto(photo)).map((photo) => photo.id);
 
-  const modelForPhotos = settings.model || serverConfig.defaultModel || "";
-  if ((settings.apiKey || serverConfig.openRouterConfigured) && modelSupportsVision(modelForPhotos)) {
+  const modelForPhotos = modelForFunction("vision");
+  if ((settings.apiKey || serverConfig.openRouterConfigured) && modelQueueSupportsVision("vision")) {
     mode = "limpieza basica + IA vision";
     try {
       const candidates = imported.filter((photo) => !removeIds.includes(photo.id)).slice(0, 24);
@@ -2064,7 +2961,7 @@ ${JSON.stringify(candidates.map((photo) => ({ id: photo.id, name: photo.name, ur
         })),
       ];
       const result = await callOpenRouter({
-        model: modelForPhotos,
+        functionType: "vision",
         messages: [{ role: "user", content }],
       });
       removeIds = uniqueStrings([...removeIds, ...(Array.isArray(result.remove_photo_ids) ? result.remove_photo_ids : [])]);
@@ -2112,7 +3009,7 @@ async function generateReport() {
   try {
     if (settings.apiKey || serverConfig.openRouterConfigured) {
       property.report = await callOpenRouter({
-        model: settings.model || DEFAULT_MODEL,
+        functionType: "score",
         messages: [{
           role: "user",
           content: `Genera un informe comercial-tecnico breve para esta propiedad owner-direct. Devuelve JSON valido:
@@ -2215,6 +3112,20 @@ function bindEvents() {
     state.editorMode = "edit";
     setView(button.dataset.view);
   }));
+  $("#topRoleNav")?.addEventListener("click", (event) => {
+    const view = event.target.dataset.topView;
+    if (!view) return;
+    if (!canAccessView(view)) {
+      setView("marketplace");
+      return;
+    }
+    if (view === "editor") {
+      startCreateProperty();
+      return;
+    }
+    state.editorMode = "edit";
+    setView(view);
+  });
   $("#sidebarToggle").addEventListener("click", () => {
     document.body.classList.toggle("sidebar-collapsed");
     localStorage.setItem("od-sidebar-collapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
@@ -2252,7 +3163,10 @@ function bindEvents() {
     });
   });
   $("#searchInput").addEventListener("input", renderProperties);
-  $("#statusFilter").addEventListener("change", renderProperties);
+  ["#statusFilter", "#scoreFilter", "#completionFilter"].forEach((selector) => {
+    const element = $(selector);
+    if (element) element.addEventListener("change", renderProperties);
+  });
   $("#propertyGrid").addEventListener("click", (event) => {
     const deleteId = event.target.dataset.deleteProperty;
     const editId = event.target.dataset.editProperty;
@@ -2285,6 +3199,55 @@ function bindEvents() {
   });
   $("#aiSearchBtn").addEventListener("click", runAiPropertySearch);
   $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
+  $(".roomix-search-input")?.addEventListener("click", (event) => {
+    setSearchPanelOpen(true);
+    if (!event.target.closest("input, button, label")) $("#aiSearchInput")?.focus();
+  });
+  $("#aiSearchInput").addEventListener("focus", () => setSearchPanelOpen(true));
+  $("#aiSearchInput").addEventListener("input", () => {
+    setSearchPanelOpen(true);
+    renderSearchUi();
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".ai-search-hero")) return;
+    if ($("#aiSearchInput")?.value || aiSearchImageDataUrl || state.aiSearchExplanation) return;
+    setSearchPanelOpen(false);
+  });
+  $("#clientPropertyGrid").addEventListener("click", (event) => {
+    const openId = event.target.dataset.openPublicProperty;
+    const favoriteId = event.target.dataset.favoriteProperty;
+    if (openId) {
+      openPropertyModal(openId);
+      return;
+    }
+    if (favoriteId) {
+      state.favoriteIds = state.favoriteIds.includes(favoriteId)
+        ? state.favoriteIds.filter((id) => id !== favoriteId)
+        : [...state.favoriteIds, favoriteId];
+      saveState();
+      renderMarketplace();
+    }
+  });
+  $("#searchModeToggle").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-search-mode]");
+    const mode = button?.dataset.searchMode;
+    if (!mode) return;
+    state.searchMode = mode;
+    saveState();
+    renderMarketplace();
+  });
+  $("#recentSearches").addEventListener("click", (event) => {
+    const query = event.target.dataset.recentSearch;
+    if (!query) return;
+    $("#aiSearchInput").value = query;
+    runAiPropertySearch();
+  });
+  $("#refinementChips").addEventListener("click", (event) => {
+    const refine = event.target.dataset.aiRefine;
+    if (!refine) return;
+    $("#aiSearchInput").value = `${$("#aiSearchInput").value.trim()} ${refine}`.trim();
+    runAiPropertySearch();
+  });
   $$("[data-ai-prompt]").forEach((button) => {
     button.addEventListener("click", () => {
       $("#aiSearchInput").value = button.dataset.aiPrompt;
@@ -2305,6 +3268,25 @@ function bindEvents() {
     aiSearchImageDataUrl = dataUrl;
     renderAiSearchPreview();
   });
+  $("#searchImageIdeas")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-search-image-idea]");
+    if (!button) return;
+    const property = state.properties.find((item) => item.id === button.dataset.searchImageIdea);
+    const src = property ? photoSrc(property.photos[0]) : "";
+    if (!src) return;
+    aiSearchImageDataUrl = src;
+    renderAiSearchPreview();
+    runAiPropertySearch();
+  });
+  $("#searchImageIdeas")?.addEventListener("change", async (event) => {
+    if (event.target.id !== "aiSearchImageInputMirror") return;
+    const [file] = event.target.files;
+    if (!file) return;
+    const [{ dataUrl }] = await filesToDataUrls([file]);
+    aiSearchImageDataUrl = dataUrl;
+    renderAiSearchPreview();
+    runAiPropertySearch();
+  });
   $$("[data-client-view]").forEach((button) => {
     button.addEventListener("click", () => {
       state.clientView = button.dataset.clientView;
@@ -2319,6 +3301,32 @@ function bindEvents() {
       setView("editor");
     });
   });
+  $("#editorProgress")?.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-progress-tab]")?.dataset.progressTab;
+    if (!tab) return;
+    state.editorTab = tab;
+    saveState();
+    setView("editor");
+  });
+  $("#wizardControls")?.addEventListener("click", (event) => {
+    if (event.target.dataset.wizardPrev !== undefined) {
+      goWizard(-1);
+      return;
+    }
+    if (event.target.dataset.wizardNext !== undefined) {
+      goWizard(1);
+      return;
+    }
+    if (event.target.dataset.wizardPublish !== undefined) {
+      const property = selectedProperty();
+      if (state.editorMode === "create") {
+        saveDraftProperty();
+        if (state.selectedId) publishProperty(state.selectedId, "published");
+      } else {
+        publishProperty(property.id, "published");
+      }
+    }
+  });
 
   $("#propertyForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -2327,10 +3335,17 @@ function bindEvents() {
 
   $("#propertyForm").addEventListener("change", updateSelectedFromForm);
   $("#propertyForm").addEventListener("input", updateSelectedFromForm);
+  $("#propertyForm").addEventListener("focusout", () => showToast("Guardado"));
 
   $$('input[name="publishedElsewhere"]').forEach((input) => {
     input.addEventListener("change", () => {
       $("#scrapeBox").classList.toggle("hidden", input.value !== "yes" || !input.checked);
+      if (input.value === "no" && input.checked && state.editorTab === "import") {
+        state.editorTab = "data";
+        saveState();
+        renderEditorTabs();
+        renderEditorProgress();
+      }
     });
   });
   $("#scrapeBtn").addEventListener("click", runScrape);
@@ -2374,6 +3389,27 @@ function bindEvents() {
     const id = event.target.dataset.deletePhoto;
     if (!id) return;
     deletePhotosByIds([id]);
+  });
+
+  $("#photoGrid").addEventListener("dragstart", (event) => {
+    const id = event.target.closest("[data-photo-card]")?.dataset.photoCard;
+    if (id) event.dataTransfer.setData("text/plain", id);
+  });
+  $("#photoGrid").addEventListener("dragover", (event) => {
+    if (event.target.closest("[data-photo-card]")) event.preventDefault();
+  });
+  $("#photoGrid").addEventListener("drop", (event) => {
+    const fromId = event.dataTransfer.getData("text/plain");
+    const toId = event.target.closest("[data-photo-card]")?.dataset.photoCard;
+    if (!fromId || !toId || fromId === toId) return;
+    const property = selectedProperty();
+    const fromIndex = property.photos.findIndex((photo) => photo.id === fromId);
+    const toIndex = property.photos.findIndex((photo) => photo.id === toId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const [moved] = property.photos.splice(fromIndex, 1);
+    property.photos.splice(toIndex, 0, moved);
+    saveState();
+    renderPhotos();
   });
 
   $("#deleteSelectedPhotosBtn").addEventListener("click", () => {
@@ -2462,15 +3498,88 @@ function bindEvents() {
 
   $("#saveSettingsBtn").addEventListener("click", () => {
     settings.apiKey = $("#apiKeyInput").value.trim();
-    settings.model = $("#modelInput").value.trim() || DEFAULT_MODEL;
-    settings.planModel = $("#planModelInput").value.trim() || settings.model;
-    saveSettings();
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    saveAiModelConfig();
   });
   $("#testAiBtn").addEventListener("click", testAiConnection);
+  $("#resetAiConfigBtn").addEventListener("click", () => {
+    aiModelConfig = defaultAiModelConfig("balanced");
+    saveAiModelConfig();
+  });
+  $("#modelProfileSelect").addEventListener("change", (event) => {
+    aiModelConfig = defaultAiModelConfig(event.target.value);
+    saveAiModelConfig();
+  });
+  $("#modelManagerGrid").addEventListener("change", (event) => {
+    const functionType = event.target.dataset.aiActiveModel;
+    if (!functionType) return;
+    aiModelConfig.functions[functionType].activeModel = event.target.value;
+    aiModelConfig.functions[functionType].fallbacks = aiModelConfig.functions[functionType].fallbacks.filter((model) => model !== event.target.value);
+    aiModelConfig.functions[functionType].status = "unknown";
+    saveAiModelConfig();
+  });
+  $("#modelManagerGrid").addEventListener("click", async (event) => {
+    const addKey = event.target.dataset.addFallback;
+    const removeKey = event.target.dataset.removeFallback;
+    const testKey = event.target.dataset.testModel;
+    if (addKey) {
+      const input = $(`[data-ai-custom-model="${addKey}"]`);
+      const value = input.value.trim();
+      if (!value) return;
+      aiModelConfig.functions[addKey].fallbacks = uniqueStrings([...aiModelConfig.functions[addKey].fallbacks, value]).filter((model) => model !== aiModelConfig.functions[addKey].activeModel);
+      input.value = "";
+      saveAiModelConfig();
+      return;
+    }
+    if (removeKey) {
+      const model = event.target.dataset.model;
+      aiModelConfig.functions[removeKey].fallbacks = aiModelConfig.functions[removeKey].fallbacks.filter((item) => item !== model);
+      saveAiModelConfig();
+      return;
+    }
+    if (testKey) {
+      $("#aiTestOutput").classList.remove("hidden");
+      $("#aiTestOutput").textContent = `Probando ${AI_FUNCTIONS[testKey].label}...`;
+      const result = await testModelFunction(testKey);
+      $("#aiTestOutput").innerHTML = result.ok
+        ? `<strong>Modelo activo.</strong><br>${escapeHtml(AI_FUNCTIONS[testKey].label)} usando ${escapeHtml(result.model)}`
+        : `<strong>Falló el test.</strong><br>${escapeHtml(result.error)}`;
+    }
+  });
+  $("#modelManagerGrid").addEventListener("dragstart", (event) => {
+    const row = event.target.closest("[data-fallback-function]");
+    if (!row) return;
+    event.dataTransfer.setData("text/plain", `${row.dataset.fallbackFunction}:${row.dataset.fallbackIndex}`);
+  });
+  $("#modelManagerGrid").addEventListener("dragover", (event) => {
+    if (event.target.closest("[data-fallback-function]")) event.preventDefault();
+  });
+  $("#modelManagerGrid").addEventListener("drop", (event) => {
+    const row = event.target.closest("[data-fallback-function]");
+    if (!row) return;
+    const [fromFunction, fromIndexRaw] = event.dataTransfer.getData("text/plain").split(":");
+    const toFunction = row.dataset.fallbackFunction;
+    const toIndex = Number(row.dataset.fallbackIndex);
+    const fromIndex = Number(fromIndexRaw);
+    if (!fromFunction || fromFunction !== toFunction || fromIndex === toIndex) return;
+    const queue = aiModelConfig.functions[toFunction].fallbacks;
+    const [moved] = queue.splice(fromIndex, 1);
+    queue.splice(toIndex, 0, moved);
+    saveAiModelConfig();
+  });
 
   $("#runAiBtn").addEventListener("click", runPhotoAnalysis);
   $("#runPlanAiBtn").addEventListener("click", runPlanAnalysis);
   $("#generateReportBtn").addEventListener("click", generateReport);
+  $("#publishFromEditorBtn")?.addEventListener("click", () => {
+    const property = selectedProperty();
+    if (state.editorMode === "create") {
+      saveDraftProperty();
+      if (state.selectedId) publishProperty(state.selectedId, "published");
+      return;
+    }
+    publishProperty(property.id, "published");
+  });
 
   $("#chatBubbleBtn").addEventListener("click", () => {
     $("#chatWidget").classList.toggle("hidden");
@@ -2478,6 +3587,12 @@ function bindEvents() {
   });
   $("#closeChatBtn").addEventListener("click", () => $("#chatWidget").classList.add("hidden"));
   $("#closePropertyModalBtn").addEventListener("click", () => $("#propertyModal").close());
+  $("#propertyModalContent").addEventListener("click", (event) => {
+    const tab = event.target.dataset.modalTab;
+    if (tab === undefined) return;
+    $$("#propertyModalContent [data-modal-tab]").forEach((button) => button.classList.toggle("active", button.dataset.modalTab === tab));
+    $$("#propertyModalContent [data-modal-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.modalPanel === tab));
+  });
   $("#chatForm").addEventListener("submit", (event) => {
     event.preventDefault();
     sendChatMessage($("#chatInput").value);
@@ -2510,5 +3625,5 @@ function updateRoomFromEvent(event) {
 
 bindEvents();
 if (localStorage.getItem("od-sidebar-collapsed") === "1") document.body.classList.add("sidebar-collapsed");
-setView("marketplace");
+setView(location.pathname === "/admin/ai" ? "settings" : "marketplace");
 loadServerConfig();

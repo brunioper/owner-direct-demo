@@ -8,6 +8,11 @@ const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "properties";
 const SUPABASE_PROFILE_TABLE = process.env.SUPABASE_PROFILE_TABLE || "profiles";
+const SUPABASE_AI_SETTINGS_TABLE = process.env.SUPABASE_AI_SETTINGS_TABLE || "ai_settings";
+const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const AI_ROUTING_STORAGE = process.env.AI_ROUTING_STORAGE || (supabaseConfigured() ? "db" : "disk");
+const AI_ROUTING_PATH = path.join(ROOT, ".data", "ai-routing.json");
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -38,6 +43,30 @@ const server = http.createServer(async (req, res) => {
       await handleOpenRouter(req, res);
       return;
     }
+    if (req.method === "POST" && parsed.pathname === "/api/openrouter/test") {
+      await handleOpenRouterTest(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/ai-config") {
+      await handleGetAiConfig(req, res);
+      return;
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/ai-config") {
+      await handleSaveAiConfig(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/ai-routing") {
+      await handleGetAiConfig(req, res);
+      return;
+    }
+    if (req.method === "PUT" && parsed.pathname === "/api/ai-routing") {
+      await handleSaveAiConfig(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/health/ai") {
+      await handleAiHealth(req, res);
+      return;
+    }
     if (req.method === "POST" && parsed.pathname === "/api/auth/login") {
       await handleLogin(req, res);
       return;
@@ -57,7 +86,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       sendJson(res, 200, {
         openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
-        defaultModel: process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free",
+        defaultModel: DEFAULT_MODEL,
+        aiRoutingStorage: AI_ROUTING_STORAGE,
         supabaseConfigured: supabaseConfigured(),
         authConfigured: supabaseAuthConfigured(),
       });
@@ -74,7 +104,7 @@ server.listen(PORT, HOST, () => {
 });
 
 function serveStatic(pathname, res) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
+  const safePath = pathname === "/" || !path.extname(pathname) ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(ROOT, safePath));
   if (!filePath.startsWith(ROOT)) {
     res.writeHead(403);
@@ -213,10 +243,169 @@ function canManageProperties(user) {
   return user?.role === "admin" || user?.role === "vendedor";
 }
 
+function canManageAiConfig(user) {
+  return user?.role === "admin";
+}
+
 function canSeeProperty(user, property) {
   if (user?.role === "admin") return true;
   if (user?.role === "vendedor") return property.ownerId === user.id || property.ownerEmail === user.email;
   return property.status === "published";
+}
+
+function defaultAiConfig() {
+  return {
+    profile: "balanced",
+    functions: {
+      search: {
+        activeModel: DEFAULT_MODEL,
+        fallbacks: ["openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
+        lastSuccessfulModel: "",
+        lastSuccessAt: "",
+        status: "unknown",
+        averageMs: null,
+      },
+      vision: {
+        activeModel: DEFAULT_MODEL,
+        fallbacks: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "nvidia/llama-nemotron-embed-vl-1b-v2:free"],
+        lastSuccessfulModel: "",
+        lastSuccessAt: "",
+        status: "unknown",
+        averageMs: null,
+      },
+      plan: {
+        activeModel: DEFAULT_MODEL,
+        fallbacks: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+        lastSuccessfulModel: "",
+        lastSuccessAt: "",
+        status: "unknown",
+        averageMs: null,
+      },
+      score: {
+        activeModel: "openai/gpt-oss-120b:free",
+        fallbacks: [DEFAULT_MODEL, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+        lastSuccessfulModel: "",
+        lastSuccessAt: "",
+        status: "unknown",
+        averageMs: null,
+      },
+    },
+  };
+}
+
+async function handleGetAiConfig(req, res) {
+  const session = await sessionFromRequest(req);
+  const user = session?.user || null;
+  const config = await loadAiRoutingConfig();
+  const publicPayload = {
+    configured: supabaseConfigured() || AI_ROUTING_STORAGE === "disk",
+    storage: AI_ROUTING_STORAGE,
+    serverKeyConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+    config,
+  };
+  if (!canManageAiConfig(user)) {
+    sendJson(res, 200, { ...publicPayload, readonly: true });
+    return;
+  }
+  if (AI_ROUTING_STORAGE === "disk" || !supabaseConfigured()) {
+    sendJson(res, 200, publicPayload);
+    return;
+  }
+  const fallback = defaultAiConfig();
+  const response = await fetch(supabaseUrl(`${SUPABASE_AI_SETTINGS_TABLE}?select=config,health,profile&scope=eq.global&limit=1`), {
+    headers: supabaseHeaders(),
+  });
+  if (!response.ok) {
+    sendJson(res, 200, { configured: true, config: fallback, warning: await response.text() });
+    return;
+  }
+  const [row] = await response.json();
+  sendJson(res, 200, {
+    configured: true,
+    config: row?.config || fallback,
+    health: row?.health || {},
+    profile: row?.profile || row?.config?.profile || fallback.profile,
+  });
+}
+
+async function handleSaveAiConfig(req, res) {
+  const session = await sessionFromRequest(req);
+  const user = session?.user || null;
+  if (!canManageAiConfig(user)) {
+    sendJson(res, 403, { error: "Solo admin puede guardar configuración IA." });
+    return;
+  }
+  const body = await readBody(req);
+  const { config, health = {} } = JSON.parse(body || "{}");
+  const normalized = normalizeAiConfig(config);
+  if (AI_ROUTING_STORAGE === "disk" || !supabaseConfigured()) {
+    await saveDiskAiConfig(normalized);
+    sendJson(res, 200, { configured: false, storage: "disk", saved: true, config: normalized });
+    return;
+  }
+  const row = {
+    id: "global",
+    scope: "global",
+    owner_id: isUuid(user.id) ? user.id : null,
+    profile: normalized.profile || "balanced",
+    config: normalized,
+    health,
+    updated_at: new Date().toISOString(),
+  };
+  const response = await fetch(supabaseUrl(SUPABASE_AI_SETTINGS_TABLE), {
+    method: "POST",
+    headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates" }),
+    body: JSON.stringify([row]),
+  });
+  if (!response.ok) {
+    sendJson(res, response.status, { error: await response.text() });
+    return;
+  }
+  sendJson(res, 200, { configured: true, saved: true, config: normalized });
+}
+
+async function loadAiRoutingConfig() {
+  if (AI_ROUTING_STORAGE !== "disk" && supabaseConfigured()) {
+    const response = await fetch(supabaseUrl(`${SUPABASE_AI_SETTINGS_TABLE}?select=config&scope=eq.global&limit=1`), {
+      headers: supabaseHeaders(),
+    });
+    if (response.ok) {
+      const [row] = await response.json();
+      if (row?.config) return normalizeAiConfig(row.config);
+    }
+  }
+  return loadDiskAiConfig();
+}
+
+function loadDiskAiConfig() {
+  try {
+    return normalizeAiConfig(JSON.parse(fs.readFileSync(AI_ROUTING_PATH, "utf8")));
+  } catch {
+    return defaultAiConfig();
+  }
+}
+
+async function saveDiskAiConfig(config) {
+  await fs.promises.mkdir(path.dirname(AI_ROUTING_PATH), { recursive: true });
+  await fs.promises.writeFile(AI_ROUTING_PATH, JSON.stringify(normalizeAiConfig(config), null, 2));
+}
+
+function normalizeAiConfig(config) {
+  const fallback = defaultAiConfig();
+  const next = config && typeof config === "object" ? config : fallback;
+  const result = { profile: next.profile || fallback.profile, functions: {} };
+  for (const key of ["search", "vision", "plan", "score"]) {
+    const item = next.functions?.[key] || fallback.functions[key];
+    result.functions[key] = {
+      activeModel: String(item.activeModel || fallback.functions[key].activeModel),
+      fallbacks: unique(Array.isArray(item.fallbacks) ? item.fallbacks.filter(Boolean).map(String) : fallback.functions[key].fallbacks),
+      lastSuccessfulModel: item.lastSuccessfulModel || "",
+      lastSuccessAt: item.lastSuccessAt || "",
+      status: item.status || "unknown",
+      averageMs: item.averageMs || null,
+    };
+  }
+  return result;
 }
 
 async function handleGetProperties(req, res) {
@@ -301,7 +490,7 @@ async function handleSyncProperties(req, res) {
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-OpenRouter-Key");
 }
 
 function isUuid(value) {
@@ -336,9 +525,11 @@ async function handleScrape(req, res) {
 
 async function handleOpenRouter(req, res) {
   const body = await readBody(req);
-  const { apiKey, model, fallbackModels = [], messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
-  const effectiveApiKey = apiKey || process.env.OPENROUTER_API_KEY;
-  const effectiveModel = model || process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
+  const { apiKey, model, fallbackModels = null, functionType = "search", messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
+  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || process.env.OPENROUTER_API_KEY;
+  const routing = await loadAiRoutingConfig();
+  const task = routing.functions?.[functionType] || routing.functions?.search || defaultAiConfig().functions.search;
+  const effectiveModel = model || task.activeModel || DEFAULT_MODEL;
   if (!effectiveApiKey) {
     sendJson(res, 401, { error: "Falta API key de OpenRouter." });
     return;
@@ -348,54 +539,193 @@ async function handleOpenRouter(req, res) {
     return;
   }
 
-  const payload = {
-    messages,
-    temperature,
-  };
-  if (responseFormat) payload.response_format = { type: "json_object" };
-
   const models = unique([
     effectiveModel,
-    ...(Array.isArray(fallbackModels) ? fallbackModels : []),
+    ...(Array.isArray(fallbackModels) ? fallbackModels : (task.fallbacks || [])),
     ...(process.env.OPENROUTER_FALLBACK_MODELS || "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),
   ]);
 
+  const result = await runOpenRouterCompletion({
+    apiKey: effectiveApiKey,
+    models,
+    messages,
+    temperature,
+    responseFormat,
+    origin: req.headers.origin,
+  });
+  await persistAiHealth(functionType, result);
+  if (!result.ok) {
+    sendJson(res, result.status || 502, {
+      error: humanOpenRouterError(result.status, result.text),
+      raw: result.text,
+      meta: result.meta,
+    });
+    return;
+  }
+  sendJson(res, 200, { ...result.json, meta: result.meta });
+}
+
+async function handleOpenRouterTest(req, res) {
+  const body = await readBody(req);
+  const { apiKey, model, functionType = "search" } = JSON.parse(body || "{}");
+  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || process.env.OPENROUTER_API_KEY;
+  if (!effectiveApiKey) {
+    sendJson(res, 401, { error: "Falta API key de OpenRouter." });
+    return;
+  }
+  if (!model) {
+    sendJson(res, 400, { error: "Falta modelo para probar." });
+    return;
+  }
+  const result = await runOpenRouterCompletion({
+    apiKey: effectiveApiKey,
+    models: [model],
+    temperature: 0,
+    responseFormat: true,
+    origin: req.headers.origin,
+    messages: [{
+      role: "user",
+      content: `Respondé solo JSON válido para probar ${functionType}: {"ok":true,"functionType":"${functionType}","message":"modelo disponible"}`,
+    }],
+  });
+  await persistAiHealth(functionType, result);
+  if (!result.ok) {
+    sendJson(res, result.status || 502, {
+      ok: false,
+      status: result.status,
+      error: humanOpenRouterError(result.status, result.text),
+      meta: result.meta,
+    });
+    return;
+  }
+  sendJson(res, 200, { ok: true, result: result.json, meta: result.meta });
+}
+
+async function handleAiHealth(req, res) {
+  const session = await sessionFromRequest(req);
+  const user = session?.user || null;
+  if (!canManageAiConfig(user)) {
+    sendJson(res, 403, { error: "Solo admin puede ver health IA." });
+    return;
+  }
+  const effectiveApiKey = req.headers["x-openrouter-key"] || process.env.OPENROUTER_API_KEY;
+  if (!effectiveApiKey) {
+    sendJson(res, 200, { serverKeyConfigured: false, status: "error", tasks: {}, error: "Falta OPENROUTER_API_KEY." });
+    return;
+  }
+  const routing = await loadAiRoutingConfig();
+  const tasks = {};
+  for (const functionType of ["search", "vision", "plan", "score"]) {
+    const item = routing.functions?.[functionType] || defaultAiConfig().functions[functionType];
+    const result = await runOpenRouterCompletion({
+      apiKey: effectiveApiKey,
+      models: [item.activeModel, ...(item.fallbacks || [])],
+      temperature: 0,
+      responseFormat: true,
+      origin: req.headers.origin,
+      messages: [{
+        role: "user",
+        content: `Respondé JSON válido: {"ok":true,"task":"${functionType}"}`,
+      }],
+    });
+    await persistAiHealth(functionType, result);
+    tasks[functionType] = result.ok
+      ? { status: result.meta.fallbackUsed ? "fallback" : "ok", usedModel: result.meta.usedModel, durationMs: result.meta.durationMs }
+      : { status: "error", attemptedModels: result.meta.attemptedModels, error: humanOpenRouterError(result.status, result.text) };
+  }
+  const statuses = Object.values(tasks).map((task) => task.status);
+  const status = statuses.includes("error") ? "error" : statuses.includes("fallback") ? "fallback" : "ok";
+  sendJson(res, 200, { serverKeyConfigured: true, status, tasks });
+}
+
+async function persistAiHealth(functionType, result) {
+  try {
+    const config = await loadAiRoutingConfig();
+    const current = config.functions?.[functionType];
+    if (!current) return;
+    current.status = result.ok ? (result.meta?.fallbackUsed ? "fallback" : "active") : "failed";
+    current.lastSuccessfulModel = result.ok ? result.meta?.usedModel || current.lastSuccessfulModel : current.lastSuccessfulModel;
+    current.lastSuccessAt = result.ok ? new Date().toISOString() : current.lastSuccessAt;
+    current.averageMs = result.meta?.durationMs || current.averageMs;
+    if (AI_ROUTING_STORAGE === "disk" || !supabaseConfigured()) {
+      await saveDiskAiConfig(config);
+    } else {
+      await fetch(supabaseUrl(SUPABASE_AI_SETTINGS_TABLE), {
+        method: "POST",
+        headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates" }),
+        body: JSON.stringify([{
+          id: "global",
+          scope: "global",
+          profile: config.profile || "balanced",
+          config,
+          health: { updatedAt: new Date().toISOString(), lastTask: functionType, lastStatus: current.status },
+          updated_at: new Date().toISOString(),
+        }]),
+      });
+    }
+  } catch {
+    // Health telemetry is best-effort.
+  }
+}
+
+async function runOpenRouterCompletion({ apiKey, models, messages, temperature = 0.2, responseFormat = true, origin }) {
+  const payload = { messages, temperature };
+  if (responseFormat) payload.response_format = { type: "json_object" };
+  const attemptedModels = [];
+  const started = Date.now();
   let lastResponse = null;
   let lastText = "";
-  for (const candidate of models) {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  for (const candidate of unique(models.filter(Boolean))) {
+    attemptedModels.push(candidate);
+    const response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${effectiveApiKey}`,
-        "HTTP-Referer": req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
         "X-Title": "Owner Direct Demo",
       },
       body: JSON.stringify({ ...payload, model: candidate }),
     });
     const text = await response.text();
     if (response.ok) {
-      res.writeHead(response.status, {
-        "Content-Type": response.headers.get("content-type") || "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
-      res.end(text);
-      return;
+      let json = {};
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { raw: text };
+      }
+      return {
+        ok: true,
+        status: response.status,
+        json,
+        text,
+        meta: {
+          usedModel: candidate,
+          attemptedModels,
+          fallbackUsed: attemptedModels.length > 1,
+          durationMs: Date.now() - started,
+        },
+      };
     }
     lastResponse = response;
     lastText = text;
     if ([401, 402].includes(response.status)) break;
   }
-
-  sendJson(res, lastResponse?.status || 502, {
-    error: humanOpenRouterError(lastResponse?.status, lastText),
-    raw: lastText,
-  });
+  return {
+    ok: false,
+    status: lastResponse?.status || 502,
+    text: lastText,
+    meta: {
+      usedModel: null,
+      attemptedModels,
+      fallbackUsed: attemptedModels.length > 1,
+      durationMs: Date.now() - started,
+    },
+  };
 }
 
 function humanOpenRouterError(status, text = "") {
