@@ -6,6 +6,18 @@ const { URL } = require("node:url");
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || "";
+const OPENROUTER_FALLBACK_MODELS = process.env.OPENROUTER_FALLBACK_MODELS || [
+  "tencent/hy3-preview:free",
+  "openai/gpt-oss-120b:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+].join(",");
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "properties";
 const SUPABASE_PROFILE_TABLE = process.env.SUPABASE_PROFILE_TABLE || "profiles";
 const SUPABASE_AI_SETTINGS_TABLE = process.env.SUPABASE_AI_SETTINGS_TABLE || "ai_settings";
@@ -85,7 +97,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       sendJson(res, 200, {
-        openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+        openRouterConfigured: Boolean(OPENROUTER_API_KEY),
         defaultModel: DEFAULT_MODEL,
         aiRoutingStorage: AI_ROUTING_STORAGE,
         supabaseConfigured: supabaseConfigured(),
@@ -123,15 +135,15 @@ function serveStatic(pathname, res) {
 }
 
 function supabaseConfigured() {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 }
 
 function supabaseAuthConfigured() {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
 
 function supabaseHeaders(extra = {}) {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = SUPABASE_SERVICE_ROLE_KEY;
   return {
     apikey: key,
     Authorization: `Bearer ${key}`,
@@ -141,11 +153,11 @@ function supabaseHeaders(extra = {}) {
 }
 
 function supabaseUrl(pathname) {
-  return `${process.env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${pathname}`;
+  return `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/${pathname}`;
 }
 
 function supabaseAuthUrl(pathname) {
-  return `${process.env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/${pathname}`;
+  return `${SUPABASE_URL.replace(/\/$/, "")}/auth/v1/${pathname}`;
 }
 
 async function handleLogin(req, res) {
@@ -169,7 +181,7 @@ async function handleLogin(req, res) {
   const response = await fetch(supabaseAuthUrl("token?grant_type=password"), {
     method: "POST",
     headers: {
-      apikey: process.env.SUPABASE_ANON_KEY,
+      apikey: SUPABASE_ANON_KEY,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ email, password }),
@@ -218,7 +230,7 @@ async function sessionFromRequest(req) {
   if (!supabaseAuthConfigured()) return null;
   const response = await fetch(supabaseAuthUrl("user"), {
     headers: {
-      apikey: process.env.SUPABASE_ANON_KEY,
+      apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${token}`,
     },
   });
@@ -300,7 +312,7 @@ async function handleGetAiConfig(req, res) {
   const publicPayload = {
     configured: supabaseConfigured() || AI_ROUTING_STORAGE === "disk",
     storage: AI_ROUTING_STORAGE,
-    serverKeyConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+    serverKeyConfigured: Boolean(OPENROUTER_API_KEY),
     config,
   };
   if (!canManageAiConfig(user)) {
@@ -526,7 +538,7 @@ async function handleScrape(req, res) {
 async function handleOpenRouter(req, res) {
   const body = await readBody(req);
   const { apiKey, model, fallbackModels = null, functionType = "search", messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
-  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || process.env.OPENROUTER_API_KEY;
+  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
   const routing = await loadAiRoutingConfig();
   const task = routing.functions?.[functionType] || routing.functions?.search || defaultAiConfig().functions.search;
   const effectiveModel = model || task.activeModel || DEFAULT_MODEL;
@@ -542,7 +554,7 @@ async function handleOpenRouter(req, res) {
   const models = unique([
     effectiveModel,
     ...(Array.isArray(fallbackModels) ? fallbackModels : (task.fallbacks || [])),
-    ...(process.env.OPENROUTER_FALLBACK_MODELS || "")
+    ...OPENROUTER_FALLBACK_MODELS
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),
@@ -571,7 +583,7 @@ async function handleOpenRouter(req, res) {
 async function handleOpenRouterTest(req, res) {
   const body = await readBody(req);
   const { apiKey, model, functionType = "search" } = JSON.parse(body || "{}");
-  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || process.env.OPENROUTER_API_KEY;
+  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
   if (!effectiveApiKey) {
     sendJson(res, 401, { error: "Falta API key de OpenRouter." });
     return;
@@ -611,7 +623,7 @@ async function handleAiHealth(req, res) {
     sendJson(res, 403, { error: "Solo admin puede ver health IA." });
     return;
   }
-  const effectiveApiKey = req.headers["x-openrouter-key"] || process.env.OPENROUTER_API_KEY;
+  const effectiveApiKey = req.headers["x-openrouter-key"] || OPENROUTER_API_KEY;
   if (!effectiveApiKey) {
     sendJson(res, 200, { serverKeyConfigured: false, status: "error", tasks: {}, error: "Falta OPENROUTER_API_KEY." });
     return;
@@ -680,7 +692,8 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
   let lastText = "";
   for (const candidate of unique(models.filter(Boolean))) {
     attemptedModels.push(candidate);
-    const response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
+    let requestPayload = { ...payload, model: candidate };
+    let response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -688,16 +701,26 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
         "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
         "X-Title": "Owner Direct Demo",
       },
-      body: JSON.stringify({ ...payload, model: candidate }),
+      body: JSON.stringify(requestPayload),
     });
-    const text = await response.text();
+    let text = await response.text();
+    if (!response.ok && responseFormat && response.status === 400 && /response_format|json_object|json_schema/i.test(text)) {
+      requestPayload = { ...payload, model: candidate };
+      delete requestPayload.response_format;
+      response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
+          "X-Title": "Owner Direct Demo",
+        },
+        body: JSON.stringify(requestPayload),
+      });
+      text = await response.text();
+    }
     if (response.ok) {
-      let json = {};
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = { raw: text };
-      }
+      const json = parseOpenRouterPayload(text);
       return {
         ok: true,
         status: response.status,
@@ -726,6 +749,29 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
       durationMs: Date.now() - started,
     },
   };
+}
+
+function parseOpenRouterPayload(text) {
+  try {
+    const envelope = JSON.parse(text);
+    const content = envelope?.choices?.[0]?.message?.content;
+    if (typeof content === "string") {
+      const cleaned = content
+        .trim()
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/```$/i, "")
+        .trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        return { raw_content: content, openrouter_response_id: envelope.id || null };
+      }
+    }
+    return envelope;
+  } catch {
+    return { raw: text };
+  }
 }
 
 function humanOpenRouterError(status, text = "") {

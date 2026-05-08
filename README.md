@@ -25,6 +25,12 @@ Variables necesarias:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_AI_SETTINGS_TABLE`: default `ai_settings`.
 
+También se aceptan los nombres que muestra Supabase en proyectos nuevos:
+
+- `NEXT_PUBLIC_SUPABASE_URL` como alias de `SUPABASE_URL`.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` como alias de `SUPABASE_ANON_KEY`.
+- `SUPABASE_SECRET_KEY` como alias de `SUPABASE_SERVICE_ROLE_KEY`.
+
 ## Routing IA
 
 La configuración de modelos se lee del backend:

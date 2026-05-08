@@ -8,6 +8,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: OPENROUTER_MODEL
         value: google/gemma-4-31b-it:free
       - key: OPENROUTER_BASE_URL
@@ -27,4 +29,6 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
         sync: false
