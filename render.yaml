@@ -11,11 +11,11 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: google/gemma-4-31b-it:free
+        value: openrouter/free
       - key: OPENROUTER_BASE_URL
         value: https://openrouter.ai/api/v1
       - key: OPENROUTER_FALLBACK_MODELS
-        value: ""
+        value: openai/gpt-oss-120b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,meta-llama/llama-3.2-3b-instruct:free
       - key: AI_ROUTING_STORAGE
         value: db
       - key: SUPABASE_TABLE

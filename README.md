@@ -17,7 +17,7 @@ Variables necesarias:
 
 - `OPENROUTER_API_KEY`: key server-side. No se envía al comprador.
 - `OPENROUTER_BASE_URL`: default `https://openrouter.ai/api/v1`.
-- `OPENROUTER_MODEL`: modelo default de emergencia.
+- `OPENROUTER_MODEL`: modelo default de emergencia. Recomendado para demo: `openrouter/free`.
 - `OPENROUTER_FALLBACK_MODELS`: fallback global separado por comas.
 - `AI_ROUTING_STORAGE`: `db` o `disk`. En Render con Supabase usar `db`.
 - `SUPABASE_URL`
@@ -40,6 +40,13 @@ La configuración de modelos se lee del backend:
 - `GET /api/health/ai`
 
 `/api/openrouter` resuelve el modelo en el servidor por tarea (`search`, `vision`, `plan`, `score`) y aplica fallbacks automáticamente. El admin puede usar un override temporal con el header `X-OpenRouter-Key`; si no existe, se usa `OPENROUTER_API_KEY`.
+
+Para demos con modelos gratuitos, `openrouter/free` suele ser la opción más resiliente porque OpenRouter enruta la request a un modelo free disponible y compatible con las capacidades pedidas. Fallback sugerido:
+
+```env
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_FALLBACK_MODELS=openai/gpt-oss-120b:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,meta-llama/llama-3.2-3b-instruct:free
+```
 
 ## Auditoría previa de config
 

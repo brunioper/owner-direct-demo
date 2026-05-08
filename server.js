@@ -10,18 +10,29 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABAS
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || "";
-const OPENROUTER_FALLBACK_MODELS = process.env.OPENROUTER_FALLBACK_MODELS || [
-  "tencent/hy3-preview:free",
+const STABLE_TEXT_MODELS = [
+  "openrouter/free",
   "openai/gpt-oss-120b:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+];
+const STABLE_VISION_MODELS = [
+  "openrouter/free",
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   "google/gemma-4-31b-it:free",
+  "openai/gpt-oss-120b:free",
+];
+const UNSUPPORTED_CHAT_MODELS = new Set([
   "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-  "meta-llama/llama-3.2-3b-instruct:free",
+]);
+const OPENROUTER_FALLBACK_MODELS = process.env.OPENROUTER_FALLBACK_MODELS || [
+  ...STABLE_TEXT_MODELS,
 ].join(",");
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "properties";
 const SUPABASE_PROFILE_TABLE = process.env.SUPABASE_PROFILE_TABLE || "profiles";
 const SUPABASE_AI_SETTINGS_TABLE = process.env.SUPABASE_AI_SETTINGS_TABLE || "ai_settings";
-const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
+const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const AI_ROUTING_STORAGE = process.env.AI_ROUTING_STORAGE || (supabaseConfigured() ? "db" : "disk");
 const AI_ROUTING_PATH = path.join(ROOT, ".data", "ai-routing.json");
@@ -271,23 +282,23 @@ function defaultAiConfig() {
     functions: {
       search: {
         activeModel: DEFAULT_MODEL,
-        fallbacks: ["openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
+        fallbacks: STABLE_TEXT_MODELS.filter((model) => model !== DEFAULT_MODEL),
         lastSuccessfulModel: "",
         lastSuccessAt: "",
         status: "unknown",
         averageMs: null,
       },
       vision: {
-        activeModel: DEFAULT_MODEL,
-        fallbacks: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "nvidia/llama-nemotron-embed-vl-1b-v2:free"],
+        activeModel: STABLE_VISION_MODELS[0],
+        fallbacks: STABLE_VISION_MODELS.slice(1),
         lastSuccessfulModel: "",
         lastSuccessAt: "",
         status: "unknown",
         averageMs: null,
       },
       plan: {
-        activeModel: DEFAULT_MODEL,
-        fallbacks: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+        activeModel: STABLE_VISION_MODELS[0],
+        fallbacks: STABLE_VISION_MODELS.slice(1),
         lastSuccessfulModel: "",
         lastSuccessAt: "",
         status: "unknown",
@@ -295,7 +306,7 @@ function defaultAiConfig() {
       },
       score: {
         activeModel: "openai/gpt-oss-120b:free",
-        fallbacks: [DEFAULT_MODEL, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+        fallbacks: STABLE_TEXT_MODELS.filter((model) => model !== "openai/gpt-oss-120b:free"),
         lastSuccessfulModel: "",
         lastSuccessAt: "",
         status: "unknown",
@@ -721,13 +732,15 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
     }
     if (response.ok) {
       const json = parseOpenRouterPayload(text);
+      const actualModel = openRouterActualModel(text) || candidate;
       return {
         ok: true,
         status: response.status,
         json,
         text,
         meta: {
-          usedModel: candidate,
+          usedModel: actualModel,
+          requestedModel: candidate,
           attemptedModels,
           fallbackUsed: attemptedModels.length > 1,
           durationMs: Date.now() - started,
@@ -771,6 +784,14 @@ function parseOpenRouterPayload(text) {
     return envelope;
   } catch {
     return { raw: text };
+  }
+}
+
+function openRouterActualModel(text) {
+  try {
+    return JSON.parse(text)?.model || "";
+  } catch {
+    return "";
   }
 }
 

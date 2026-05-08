@@ -4,13 +4,12 @@ const AI_CONFIG_KEY = "od-demo-ai-config-v1";
 const AI_USAGE_KEY = "od-demo-ai-usage-v1";
 const AUTH_KEY = "od-demo-auth-v1";
 const LOCAL_API_BASE = "http://127.0.0.1:4173";
-const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
+const DEFAULT_MODEL = "openrouter/free";
 const MODEL_PRESETS = [
-  "tencent/hy3-preview:free",
+  "openrouter/free",
   "openai/gpt-oss-120b:free",
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   "google/gemma-4-31b-it:free",
-  "nvidia/llama-nemotron-embed-vl-1b-v2:free",
   "meta-llama/llama-3.2-3b-instruct:free",
 ];
 const AI_FUNCTIONS = {
@@ -32,30 +31,30 @@ const MODEL_PROFILES = {
     label: "Rápido y económico",
     description: "Prioriza modelos free/livianos para demos rápidas.",
     functions: {
-      search: ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
-      vision: ["google/gemma-4-31b-it:free", "nvidia/llama-nemotron-embed-vl-1b-v2:free", "tencent/hy3-preview:free"],
-      plan: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      score: ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
+      search: ["openrouter/free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
+      vision: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      plan: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      score: ["openrouter/free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
     },
   },
   balanced: {
     label: "Equilibrado",
     description: "Default: buen balance para búsqueda, fotos, planos y scoring.",
     functions: {
-      search: ["google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
-      vision: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      plan: ["google/gemma-4-31b-it:free", "tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      score: ["openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      search: ["openrouter/free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
+      vision: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      plan: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+      score: ["openrouter/free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
     },
   },
   quality: {
     label: "Máxima calidad",
     description: "Prueba primero modelos más pesados/omni para mejor análisis.",
     functions: {
-      search: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-120b:free"],
-      vision: ["tencent/hy3-preview:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
-      plan: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "tencent/hy3-preview:free", "google/gemma-4-31b-it:free"],
-      score: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
+      search: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free"],
+      vision: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
+      plan: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
+      score: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free"],
     },
   },
 };
@@ -194,8 +193,8 @@ function ensurePropertyDefaults(property) {
 function loadSettings() {
   try {
     const next = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
-    if (!next.model || next.model.includes("gpt-oss")) next.model = DEFAULT_MODEL;
-    if (!next.planModel || next.planModel.includes("gpt-oss")) next.planModel = next.model;
+    if (!next.model) next.model = DEFAULT_MODEL;
+    if (!next.planModel) next.planModel = next.model;
     return next;
   } catch {
     return { model: DEFAULT_MODEL, planModel: DEFAULT_MODEL };
@@ -1940,9 +1939,7 @@ async function callOpenRouter({ model, functionType = "search", messages, temper
     throw new Error(humanAiError(response.status, text));
   }
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OpenRouter no devolvio contenido.");
-  const parsed = JSON.parse(content);
+  const parsed = parseAiResponsePayload(data);
   const usedModel = data.meta?.usedModel || selectedModel;
   recordAiUsage(functionType, data.meta || { usedModel, durationMs: Date.now() - started });
   updateModelStatus(functionType, {
@@ -1953,6 +1950,23 @@ async function callOpenRouter({ model, functionType = "search", messages, temper
   });
   parsed.__meta = data.meta || { usedModel, attemptedModels: [selectedModel], fallbackUsed: false, durationMs: Date.now() - started };
   return parsed;
+}
+
+function parseAiResponsePayload(data) {
+  if (!data || typeof data !== "object") throw new Error("OpenRouter no devolvió contenido.");
+  if (data.choices?.[0]?.message?.content) {
+    const content = data.choices[0].message.content;
+    if (typeof content === "string") {
+      return JSON.parse(content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim());
+    }
+    return content;
+  }
+  const { meta, ...payload } = data;
+  if (payload.raw_content && typeof payload.raw_content === "string") {
+    return JSON.parse(payload.raw_content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim());
+  }
+  if (!Object.keys(payload).length) throw new Error("OpenRouter no devolvió contenido.");
+  return payload;
 }
 
 function modelForFunction(functionType) {
@@ -2038,7 +2052,7 @@ function photoSrc(photo) {
 
 function modelSupportsVision(model = "") {
   const value = model.toLowerCase();
-  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava"].some((token) => value.includes(token));
+  return value === "openrouter/free" || ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava", "omni"].some((token) => value.includes(token));
 }
 
 function modelQueueSupportsVision(functionType) {
