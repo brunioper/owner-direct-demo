@@ -609,10 +609,7 @@ async function handleOpenRouterTest(req, res) {
     temperature: 0,
     responseFormat: true,
     origin: req.headers.origin,
-    messages: [{
-      role: "user",
-      content: `Respondé solo JSON válido para probar ${functionType}: {"ok":true,"functionType":"${functionType}","message":"modelo disponible"}`,
-    }],
+    messages: buildAiTestMessages(functionType),
   });
   await persistAiHealth(functionType, result);
   if (!result.ok) {
@@ -649,10 +646,7 @@ async function handleAiHealth(req, res) {
       temperature: 0,
       responseFormat: true,
       origin: req.headers.origin,
-      messages: [{
-        role: "user",
-        content: `Respondé JSON válido: {"ok":true,"task":"${functionType}"}`,
-      }],
+      messages: buildAiTestMessages(functionType),
     });
     await persistAiHealth(functionType, result);
     tasks[functionType] = result.ok
@@ -662,6 +656,25 @@ async function handleAiHealth(req, res) {
   const statuses = Object.values(tasks).map((task) => task.status);
   const status = statuses.includes("error") ? "error" : statuses.includes("fallback") ? "fallback" : "ok";
   sendJson(res, 200, { serverKeyConfigured: true, status, tasks });
+}
+
+function buildAiTestMessages(functionType) {
+  const prompt = `Respondé solo JSON válido para probar ${functionType}: {"ok":true,"functionType":"${functionType}","message":"modelo disponible"}`;
+  if (functionType !== "vision" && functionType !== "plan") {
+    return [{ role: "user", content: prompt }];
+  }
+  return [{
+    role: "user",
+    content: [
+      { type: "text", text: `${prompt}. Esta prueba incluye una imagen mínima para confirmar soporte real de input visual.` },
+      {
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        },
+      },
+    ],
+  }];
 }
 
 async function persistAiHealth(functionType, result) {
@@ -698,10 +711,22 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
   const payload = { messages, temperature };
   if (responseFormat) payload.response_format = { type: "json_object" };
   const attemptedModels = [];
+  const needsImageInput = messagesHaveImageInput(messages);
+  const candidates = unique(models.filter(Boolean))
+    .filter((model) => !UNSUPPORTED_CHAT_MODELS.has(String(model).toLowerCase()))
+    .filter((model) => !needsImageInput || modelSupportsImageInput(model));
   const started = Date.now();
   let lastResponse = null;
   let lastText = "";
-  for (const candidate of unique(models.filter(Boolean))) {
+  if (!candidates.length) {
+    return {
+      ok: false,
+      status: 400,
+      text: "No hay modelos configurados que soporten image input.",
+      meta: { usedModel: null, attemptedModels: [], fallbackUsed: false, durationMs: 0 },
+    };
+  }
+  for (const candidate of candidates) {
     attemptedModels.push(candidate);
     let requestPayload = { ...payload, model: candidate };
     let response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
@@ -739,8 +764,8 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
         json,
         text,
         meta: {
-          usedModel: actualModel,
-          requestedModel: candidate,
+          usedModel: candidate,
+          routedModel: actualModel === candidate ? "" : actualModel,
           attemptedModels,
           fallbackUsed: attemptedModels.length > 1,
           durationMs: Date.now() - started,
@@ -764,27 +789,95 @@ async function runOpenRouterCompletion({ apiKey, models, messages, temperature =
   };
 }
 
+function messagesHaveImageInput(messages = []) {
+  return JSON.stringify(messages).includes('"image_url"');
+}
+
+function modelSupportsImageInput(model = "") {
+  const value = String(model).toLowerCase();
+  if (value === "openrouter/free") return true;
+  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava", "omni"].some((token) => value.includes(token));
+}
+
 function parseOpenRouterPayload(text) {
   try {
     const envelope = JSON.parse(text);
     const content = envelope?.choices?.[0]?.message?.content;
     if (typeof content === "string") {
-      const cleaned = content
-        .trim()
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/```$/i, "")
-        .trim();
-      try {
-        return JSON.parse(cleaned);
-      } catch {
-        return { raw_content: content, openrouter_response_id: envelope.id || null };
-      }
+      return parseLooseJson(content) || { raw_content: content, openrouter_response_id: envelope.id || null };
     }
     return envelope;
   } catch {
     return { raw: text };
   }
+}
+
+function parseLooseJson(content) {
+  const cleaned = String(content || "")
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const candidates = unique([
+    cleaned,
+    extractJsonObject(cleaned),
+    escapeJsonControlCharacters(cleaned),
+    escapeJsonControlCharacters(extractJsonObject(cleaned)),
+  ].filter(Boolean));
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // try next repair candidate
+    }
+  }
+  return null;
+}
+
+function extractJsonObject(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : "";
+}
+
+function escapeJsonControlCharacters(text) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  for (const char of String(text || "")) {
+    if (escaped) {
+      output += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      output += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      output += char;
+      continue;
+    }
+    if (inString) {
+      if (char === "\n") {
+        output += "\\n";
+        continue;
+      }
+      if (char === "\r") {
+        output += "\\r";
+        continue;
+      }
+      if (char === "\t") {
+        output += "\\t";
+        continue;
+      }
+    }
+    output += char;
+  }
+  return output;
 }
 
 function openRouterActualModel(text) {

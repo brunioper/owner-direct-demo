@@ -232,9 +232,10 @@ function normalizeAiModelConfig(config) {
   const result = { profile: next.profile || fallback.profile, functions: {} };
   Object.keys(AI_FUNCTIONS).forEach((key) => {
     const item = next.functions?.[key] || fallback.functions[key];
+    const activeModel = normalizeModelName(item.activeModel || fallback.functions[key].activeModel);
     result.functions[key] = {
-      activeModel: item.activeModel || fallback.functions[key].activeModel || DEFAULT_MODEL,
-      fallbacks: uniqueStrings(Array.isArray(item.fallbacks) ? item.fallbacks : fallback.functions[key].fallbacks).filter((model) => model !== item.activeModel),
+      activeModel,
+      fallbacks: uniqueStrings(Array.isArray(item.fallbacks) ? item.fallbacks.map(normalizeModelName) : fallback.functions[key].fallbacks).filter((model) => model !== activeModel),
       lastSuccessfulModel: item.lastSuccessfulModel || "",
       lastSuccessAt: item.lastSuccessAt || "",
       status: item.status || "unknown",
@@ -242,6 +243,13 @@ function normalizeAiModelConfig(config) {
     };
   });
   return result;
+}
+
+function normalizeModelName(model = "") {
+  const value = String(model || "").trim();
+  if (!value) return DEFAULT_MODEL;
+  if (value === "minimax/minimax-m2.5-20260211:free") return "openrouter/free";
+  return value;
 }
 
 function saveAiModelConfig({ remote = true } = {}) {
@@ -598,7 +606,7 @@ function renderModelManager() {
       <div class="model-summary-card">
         <span class="model-status ${statusClass(item.status)}">${statusTextModel(item.status)}</span>
         <strong>${escapeHtml(info.label)}</strong>
-        <small>${escapeHtml(item.lastSuccessfulModel || item.activeModel)}</small>
+        <small>${escapeHtml(item.activeModel)}</small>
         <em>${item.averageMs ? `${Math.round(item.averageMs)} ms promedio` : "Sin telemetría"}</em>
       </div>
     `;
@@ -645,7 +653,7 @@ function renderModelManager() {
         </div>
         <div class="model-meta">
           <span>Último OK: ${escapeHtml(item.lastSuccessAt ? new Date(item.lastSuccessAt).toLocaleString("es-UY") : "pendiente")}</span>
-          <span>Modelo usado: ${escapeHtml(item.lastSuccessfulModel || "pendiente")}</span>
+          <span>Router/modelo: ${escapeHtml(item.lastSuccessfulModel || item.activeModel || "pendiente")}</span>
         </div>
         <button class="primary" data-test-model="${key}">Test Now</button>
       </article>
@@ -1944,7 +1952,7 @@ async function callOpenRouter({ model, functionType = "search", messages, temper
   recordAiUsage(functionType, data.meta || { usedModel, durationMs: Date.now() - started });
   updateModelStatus(functionType, {
     status: data.meta?.fallbackUsed ? "fallback" : "active",
-    lastSuccessfulModel: usedModel,
+    lastSuccessfulModel: data.meta?.routedModel || usedModel,
     lastSuccessAt: new Date().toISOString(),
     averageMs: averageMsFor(functionType, data.meta?.durationMs || Date.now() - started),
   });
@@ -1957,16 +1965,84 @@ function parseAiResponsePayload(data) {
   if (data.choices?.[0]?.message?.content) {
     const content = data.choices[0].message.content;
     if (typeof content === "string") {
-      return JSON.parse(content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim());
+      return parseLooseJson(content);
     }
     return content;
   }
   const { meta, ...payload } = data;
   if (payload.raw_content && typeof payload.raw_content === "string") {
-    return JSON.parse(payload.raw_content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim());
+    return parseLooseJson(payload.raw_content);
   }
   if (!Object.keys(payload).length) throw new Error("OpenRouter no devolvió contenido.");
   return payload;
+}
+
+function parseLooseJson(content) {
+  const cleaned = String(content || "")
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const candidates = uniqueStrings([
+    cleaned,
+    extractJsonObject(cleaned),
+    escapeJsonControlCharacters(cleaned),
+    escapeJsonControlCharacters(extractJsonObject(cleaned)),
+  ].filter(Boolean));
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // try next repair candidate
+    }
+  }
+  throw new Error("La IA respondió, pero no devolvió JSON válido.");
+}
+
+function extractJsonObject(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : "";
+}
+
+function escapeJsonControlCharacters(text) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  for (const char of String(text || "")) {
+    if (escaped) {
+      output += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      output += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      output += char;
+      continue;
+    }
+    if (inString) {
+      if (char === "\n") {
+        output += "\\n";
+        continue;
+      }
+      if (char === "\r") {
+        output += "\\r";
+        continue;
+      }
+      if (char === "\t") {
+        output += "\\t";
+        continue;
+      }
+    }
+    output += char;
+  }
+  return output;
 }
 
 function modelForFunction(functionType) {
@@ -2127,10 +2203,25 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
       detail: "Evaluando distribución, terminaciones, estado, luminosidad, exterior y documentación visual.",
       percent: 54,
     });
-    const analysis = await callOpenRouter({
-      functionType: "vision",
-      messages: [{ role: "user", content }],
-    });
+    let analysis;
+    try {
+      analysis = await callOpenRouter({
+        functionType: "vision",
+        messages: [{ role: "user", content }],
+      });
+    } catch (error) {
+      if (!isImageInputError(error)) throw error;
+      setOperationProgress("#analysisProgress", {
+        title: "Reintentando análisis",
+        detail: "El router gratuito no encontró endpoint visual. Sigo con datos y metadata para no cortar el flujo.",
+        percent: 62,
+      });
+      analysis = await callOpenRouter({
+        functionType: "score",
+        messages: [{ role: "user", content: `${promptText}\n\nNo hubo endpoint visual disponible, así que este análisis debe aclarar que no inspeccionó las imágenes directamente y basarse en metadata, nombres de fotos y ficha cargada.` }],
+      });
+      analysis.summary = `${analysis.summary || "Análisis generado con metadata."} Nota: no hubo endpoint visual disponible; se usaron datos cargados y metadata de fotos.`;
+    }
     setOperationProgress("#analysisProgress", {
       title: "Generando informe",
       detail: "Ordenando fortalezas, riesgos, fotos recomendadas e impacto estimado en valor.",
@@ -2159,6 +2250,10 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
     $("#runAiBtn").disabled = false;
     $("#runAiBtn").textContent = "Analizar fotos con IA";
   }
+}
+
+function isImageInputError(error) {
+  return /image input|soporten image|soporte real de input visual|input visual|endpoint visual/i.test(String(error?.message || error || ""));
 }
 
 async function runPlanAnalysis() {
@@ -2604,12 +2699,12 @@ async function testModelFunction(functionType, model = null) {
     updateModelStatus(functionType, {
       status: "active",
       activeModel: target,
-      lastSuccessfulModel: data.meta?.usedModel || target,
+      lastSuccessfulModel: data.meta?.routedModel || data.meta?.usedModel || target,
       lastSuccessAt: new Date().toISOString(),
       averageMs: averageMsFor(functionType, data.meta?.durationMs || Date.now() - started),
     });
     saveAiModelConfig();
-    return { ok: true, functionType, model: data.meta?.usedModel || target };
+    return { ok: true, functionType, model: data.meta?.routedModel || data.meta?.usedModel || target };
   } catch (error) {
     updateModelStatus(functionType, { status: "failed" });
     return { ok: false, functionType, model: target, error: error.message };
