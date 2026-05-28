@@ -131,6 +131,8 @@ let authSession = loadAuthSession();
 let serverConfig = {};
 let remoteSaveTimer = null;
 let loadingRemote = false;
+let initialLoadComplete = false;
+let aiSearchDebounceTimer = null;
 let aiSearchImageDataUrl = "";
 let leafletMap = null;
 let leafletMarkerLayer = null;
@@ -489,6 +491,37 @@ function propertyCompleteness(property) {
   };
 }
 
+function listingCompleteness(property) {
+  const hasCosts = Number(property.uteAvg) > 0 || Number(property.oseAvg) > 0 || Number(property.commonFees) > 0;
+  const hasAmenities = (property.extras || []).some((e) => e.label && e.value);
+  const hasRoomDescriptions = (property.rooms || []).some((r) => r.notes && String(r.notes).trim());
+  const hasLegalDocs = (property.documents || []).length > 0;
+  const checks = [
+    { label: "Foto principal", weight: 15, done: (property.photos || []).length >= 1, icon: "📷", why: "Sin foto principal tu listing no aparece en búsquedas", tab: "media" },
+    { label: "Precio USD", weight: 15, done: Number(property.price) > 0, icon: "💵", why: "El precio es el primer filtro de búsqueda del comprador", tab: "data" },
+    { label: "m² cubiertos", weight: 15, done: Boolean(builtAreaForValue(property)), icon: "📐", why: "El precio por m² es la métrica clave para comparar propiedades", tab: "data" },
+    { label: "Dormitorios y baños", weight: 15, done: Number(property.bedrooms) > 0 && property.bathrooms !== "" && property.bathrooms !== null, icon: "🛏", why: "El primer filtro que usan los compradores al buscar", tab: "data" },
+    { label: "Agregá 6 fotos o más", weight: 8, done: (property.photos || []).length >= 6, icon: "🖼", why: "Los listings con 10+ fotos reciben 3× más consultas", tab: "media" },
+    { label: "Costos mensuales (UTE, OSE, gastos)", weight: 8, done: hasCosts, icon: "💰", why: "Los compradores lo exigen antes de visitar", tab: "data" },
+    { label: "Amenities (parrillero, pileta, cochera…)", weight: 8, done: hasAmenities, icon: "✅", why: "Filtran a compradores calificados con ese requisito", tab: "data" },
+    { label: "Plano subido", weight: 8, done: (property.plans || []).length >= 1, icon: "🏠", why: "Aumenta los guardados en un 30%", tab: "media" },
+    { label: "Descripción por ambiente", weight: 4, done: hasRoomDescriptions, icon: "📝", why: "Los compradores comparan ambientes antes de visitar", tab: "data" },
+    { label: "Datos legales o documentos", weight: 4, done: hasLegalDocs, icon: "📋", why: "Genera confianza en compradores con financiamiento", tab: "data" },
+    { label: "Año de construcción", weight: 4, done: Boolean(property.yearBuilt), icon: "🏗", why: "Permite comparar con el mercado por antigüedad", tab: "data" },
+    { label: "Arquitecto / estudio", weight: 4, done: Boolean(property.architect && String(property.architect).trim()), icon: "🏛", why: "Las propiedades firmadas por estudios reconocidos se valorizan más", tab: "data" },
+  ];
+  const earned = checks.reduce((sum, c) => sum + (c.done ? c.weight : 0), 0);
+  const score = Math.min(100, earned);
+  const missing = checks.filter((c) => !c.done).sort((a, b) => b.weight - a.weight);
+  return { score, checks, missing };
+}
+
+function costCompleteness(property) {
+  const fields = [property.uteAvg, property.oseAvg, property.antelAvg, property.contribucionAnnual, property.primariaAnnual, property.insuranceAvg];
+  const filled = fields.filter((v) => v !== "" && v !== null && v !== undefined && Number(v) > 0).length;
+  return filled / fields.length;
+}
+
 function renderAll() {
   renderAuth();
   renderSettings();
@@ -507,6 +540,8 @@ function renderAll() {
   renderEditorProgress();
   renderPublishChecklist();
   renderWizardControls();
+  renderSellerCompleteness();
+  renderCostsBanner();
   renderActivePropertySelectors();
 }
 
@@ -738,6 +773,8 @@ async function loadServerConfig() {
   renderSettings();
   await loadRemoteAiConfig();
   await loadRemoteProperties();
+  initialLoadComplete = true;
+  renderMarketplace();
 }
 
 async function loadRemoteAiConfig() {
@@ -792,6 +829,7 @@ async function loadRemoteProperties() {
       state.properties.forEach(ensurePropertyDefaults);
       state.selectedId = state.properties[0]?.id || state.selectedId;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      initialLoadComplete = true;
       renderAll();
     } else if (state.properties.length && canManageProperties()) {
       await syncRemoteProperties();
@@ -800,6 +838,7 @@ async function loadRemoteProperties() {
     console.warn("No se pudo cargar Supabase", error);
   } finally {
     loadingRemote = false;
+    initialLoadComplete = true;
   }
 }
 
@@ -972,6 +1011,22 @@ function clientFilteredProperties() {
   });
 }
 
+function skeletonCard() {
+  const article = document.createElement("article");
+  article.className = "property-card public-card skeleton-card";
+  article.innerHTML = `
+    <div class="property-media"></div>
+    <div class="property-body">
+      <span class="skeleton-line" style="height:20px;width:75%;margin-bottom:10px"></span>
+      <span class="skeleton-line" style="height:16px;width:44%;margin-bottom:10px"></span>
+      <span class="skeleton-line" style="height:13px;width:58%;margin-bottom:14px"></span>
+      <span class="skeleton-line" style="height:13px;width:80%;margin-bottom:14px"></span>
+      <span class="skeleton-line" style="height:36px;width:100%;border-radius:10px"></span>
+    </div>
+  `;
+  return article;
+}
+
 function renderMarketplace() {
   const grid = $("#clientPropertyGrid");
   const map = $("#mapCanvas");
@@ -981,22 +1036,50 @@ function renderMarketplace() {
   $$("[data-client-view]").forEach((button) => button.classList.toggle("active", button.dataset.clientView === state.clientView));
   renderSearchUi();
   const properties = clientFilteredProperties();
+  // AI search output — keep in search hero AND show above grid
   const aiOutput = $("#aiSearchOutput");
+  const aiSummary = $("#aiResultSummary");
+  const publicExplanation = publicAiExplanation(state.aiSearchExplanation);
   if (aiOutput) {
-    const publicExplanation = publicAiExplanation(state.aiSearchExplanation);
     aiOutput.classList.toggle("hidden", !publicExplanation);
     aiOutput.innerHTML = publicExplanation ? `<strong>Búsqueda IA activa.</strong><br>${escapeHtml(publicExplanation)}` : "";
   }
+  if (aiSummary) {
+    const showSummary = Boolean(publicExplanation && state.aiSearchIds);
+    aiSummary.classList.toggle("hidden", !showSummary);
+    aiSummary.textContent = showSummary ? publicExplanation : "";
+  }
+
+  // Neighborhood context line
+  const ctxEl = $("#neighborhoodContext");
+  if (ctxEl) {
+    const publishedForCtx = state.properties.filter((p) => p.status === "published");
+    const m2List = publishedForCtx.map((p) => pricePerM2(p)).filter(Boolean);
+    const avgM2 = m2List.length ? Math.round(m2List.reduce((s, v) => s + v, 0) / m2List.length) : null;
+    const count = properties.length;
+    ctxEl.textContent = `Colinas de Carrasco · Precio promedio del barrio: ${avgM2 ? `USD ${avgM2.toLocaleString("es-UY")}/m²` : "—"} · ${count} ${count === 1 ? "propiedad disponible" : "propiedades disponibles"}`;
+  }
+
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
   grid.classList.toggle("list-mode", state.clientView === "list");
   grid.innerHTML = "";
+
+  if (!initialLoadComplete) {
+    for (let i = 0; i < 6; i++) grid.appendChild(skeletonCard());
+    return;
+  }
 
   if (!properties.length) {
     const publishedCount = state.properties.filter((property) => property.status === "published").length;
     const empty = emptyNode();
     if (publishedCount) {
-      empty.querySelector("strong").textContent = "No hay resultados con estos filtros";
-      empty.querySelector("span").textContent = "Limpiá la búsqueda IA o ajustá filtros para volver a ver las propiedades publicadas.";
+      empty.querySelector("strong").textContent = "No encontramos propiedades con esos criterios.";
+      empty.querySelector("span").textContent = "Intentá una búsqueda diferente o ampliá los filtros.";
+      const clearBtn = document.createElement("button");
+      clearBtn.className = "empty-clear-btn";
+      clearBtn.textContent = "Modificá tu búsqueda";
+      clearBtn.addEventListener("click", clearAiSearch);
+      empty.appendChild(clearBtn);
     }
     grid.appendChild(empty);
     renderLeafletMap([]);
@@ -1005,44 +1088,44 @@ function renderMarketplace() {
 
   properties.forEach((property, index) => {
     const card = document.createElement("article");
-    card.className = `property-card public-card ${state.clientView === "list" ? "list-card" : ""}`;
+    const isListMode = state.clientView === "list";
+    card.className = `property-card public-card${isListMode ? " list-card" : " animate-in"}`;
+    if (!isListMode) card.style.animationDelay = (index * 0.05) + "s";
+
     const cover = photoSrc(property.photos[0]);
-    const score = property.score ? Number(property.score).toFixed(1) : "--";
-    const badges = propertyBadges(property);
-    const favorite = state.favoriteIds.includes(property.id);
+    const scoreNum = Number(property.score);
+    const scoreCls = property.score
+      ? (scoreNum >= 7.5 ? "score-gold" : scoreNum >= 6 ? "score-amber" : "score-gray")
+      : "";
+    const statusLabel = { published: "En venta", reserved: "Reservado", sold: "Vendido" }[property.status] || "En venta";
+    const statusCls = { published: "status-venta", reserved: "status-reservado", sold: "status-vendido" }[property.status] || "status-venta";
+    const photos = property.photos.filter(photoSrc);
+    const photoPct = Math.min(100, Math.round(photos.length / 10 * 100));
+    const pillCls = photoPct > 80 ? "photo-pill-green" : photoPct >= 50 ? "photo-pill-amber" : "photo-pill-red";
+
     card.innerHTML = `
       <div class="property-media">
-        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(property.title || "Propiedad")}">` : "Sin foto principal"}
-        <div class="media-overlay">
-          <div>${badges.map((badge) => `<span class="tag ${badge.kind}">${escapeHtml(badge.label)}</span>`).join("")}</div>
-          <strong>${formatUsd(Number(property.price))}</strong>
-        </div>
+        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(property.title || "Propiedad")}">` : ""}
+        <span class="card-badge-status ${statusCls}">${escapeHtml(statusLabel)}</span>
+        ${property.score ? `<span class="card-badge-score ${scoreCls}">${scoreNum.toFixed(1)}★</span>` : ""}
       </div>
       <div class="property-body">
         <h3>${escapeHtml(property.title || "Propiedad sin titulo")}</h3>
+        <p class="card-neighborhood">${escapeHtml(property.neighborhood || "")}, ${escapeHtml(property.city || "Uruguay")}</p>
         <strong class="public-price">${formatUsd(Number(property.price))}</strong>
-        <div class="meta location-line">
-          <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}, ${escapeHtml(property.city || "Uruguay")}</span>
-        </div>
-        <div class="icon-row">
+        <p class="card-usd-m2">${pricePerM2Label(property)}</p>
+        <div class="card-stats-row">
           <span>${property.bedrooms || 0} dorm.</span>
           <span>${property.bathrooms || 0} baños</span>
           <span>${builtAreaForValue(property) || "--"} m²</span>
+          ${property.landArea ? `<span>${property.landArea} m² terreno</span>` : ""}
         </div>
-        <div class="card-metrics">
-          ${property.score ? scoreDial(property.score) : ""}
-          <span>${pricePerM2Label(property)}</span>
-        </div>
-        <div class="public-card-actions">
-          <button class="primary" data-open-public-property="${property.id}">Ver detalles</button>
-          <button class="${favorite ? "saved" : ""}" data-favorite-property="${property.id}">${favorite ? "Guardada" : "Guardar"}</button>
+        <div class="card-footer-row">
+          <span class="photo-pill ${pillCls}">${photoPct}% fotos</span>
         </div>
       </div>
     `;
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("button")) return;
-      openPropertyModal(property.id);
-    });
+    card.addEventListener("click", () => openPropertyModal(property.id));
     grid.appendChild(card);
   });
   renderLeafletMap(properties);
@@ -1169,6 +1252,7 @@ function renderEditorProgress() {
   const property = selectedProperty();
   if (!el || !property) return;
   const complete = propertyCompleteness(property);
+  const listScore = listingCompleteness(property).score;
   const steps = [
     { label: "Importar", tab: "import", done: Boolean(property.sourceUrl || state.editorMode === "edit"), active: state.editorTab === "import" },
     { label: "Datos básicos", tab: "data", done: complete.dataOk, active: state.editorTab === "data" },
@@ -1179,7 +1263,7 @@ function renderEditorProgress() {
   el.innerHTML = `
     <div class="editor-progress-head">
       <strong>${escapeHtml(property.title || "Nueva propiedad")}</strong>
-      <span>${complete.percent}% completa</span>
+      <span>${listScore}% completa</span>
     </div>
     <div class="progress-rail">
       ${steps.map((step, index) => `
@@ -1190,6 +1274,53 @@ function renderEditorProgress() {
       `).join("")}
     </div>
   `;
+}
+
+function renderSellerCompleteness() {
+  const el = $("#sellerCompleteness");
+  const property = selectedProperty();
+  if (!el) return;
+  if (!property || !canManageProperties()) { el.innerHTML = ""; return; }
+  const { score, missing } = listingCompleteness(property);
+  const [label, colorVar] =
+    score < 50 ? ["Tu listing no está listo para publicar", "var(--red)"] :
+    score < 75 ? ["Buen comienzo — completá los datos clave", "var(--warning)"] :
+    score < 90 ? ["Casi listo — unos detalles más", "var(--warning)"] :
+               ["Listing completo — listo para publicar", "var(--green)"];
+  el.innerHTML = `
+    <div class="seller-completeness-panel">
+      <div class="completeness-header">
+        <div class="completeness-title-row">
+          <span class="completeness-label" style="color:${colorVar}">${escapeHtml(label)}</span>
+          <strong class="completeness-pct" style="color:${colorVar}">${score}%</strong>
+        </div>
+        <div class="completeness-track">
+          <div class="completeness-fill" style="width:${score}%;background:${colorVar}"></div>
+        </div>
+      </div>
+      ${missing.length ? `
+        <div class="completeness-checklist">
+          ${missing.slice(0, 6).map((item) => `
+            <div class="completeness-item ${item.weight >= 15 ? "item-critical" : item.weight >= 8 ? "item-important" : "item-nice"}">
+              <span class="item-icon">${item.icon}</span>
+              <div class="item-body">
+                <strong>${escapeHtml(item.label)}</strong>
+                <span>${escapeHtml(item.why)}</span>
+              </div>
+              <span class="item-gain">+${item.weight}%</span>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p class="completeness-done">✓ Todos los datos recomendados están completos.</p>`}
+    </div>
+  `;
+}
+
+function renderCostsBanner() {
+  const banner = $("#costsBanner");
+  const property = selectedProperty();
+  if (!banner || !property) return;
+  banner.classList.toggle("hidden", costCompleteness(property) >= 0.6);
 }
 
 function renderPublishChecklist() {
@@ -1377,29 +1508,30 @@ function renderPropertyModal() {
   const property = state.properties.find((item) => item.id === state.selectedId) || selectedProperty();
   const content = $("#propertyModalContent");
   if (!property || !content) return;
-  const docs = verifiedDocumentTypes(property);
-  $("#modalTitle").textContent = property.title || "Propiedad";
+
+  const MODAL_TABS = ["ficha", "ambientes", "checklist", "datos", "costos"];
+  const TAB_LABELS = { ficha: "Ficha", ambientes: "Ambientes", checklist: "Checklist", datos: "Datos", costos: "Costos" };
+  const hashTab = location.hash.slice(1);
+  const initialTab = MODAL_TABS.includes(hashTab) ? hashTab : "ficha";
+
   const photos = property.photos.filter((photo) => photoSrc(photo));
-  const roomsById = new Map((property.rooms || []).map((item) => [item.id, item]));
   const score = property.score ? Number(property.score).toFixed(1) : "--";
+  const docs = verifiedDocumentTypes(property);
   const monthlyCosts = [
     ["UTE", Number(property.uteAvg || 0)],
     ["OSE", Number(property.oseAvg || 0)],
     ["Antel", Number(property.antelAvg || 0)],
     ["Gastos comunes", Number(property.commonFees || 0)],
     ["Seguro hogar", Number(property.insuranceAvg || 0)],
-  ].filter(([, value]) => value);
-  const monthlyTotal = monthlyCosts.reduce((sum, [, value]) => sum + value, 0);
+  ].filter(([, v]) => v);
+  const monthlyTotal = monthlyCosts.reduce((sum, [, v]) => sum + v, 0);
   const yearlyCosts = [
     ["Contribución", Number(property.contribucionAnnual || 0)],
     ["Primaria", Number(property.primariaAnnual || 0)],
-  ].filter(([, value]) => value);
-  const warnings = [
-    ...(property.analysis?.risks || []),
-    ...(property.analysis?.inconsistencies || []),
-    ...(property.scrapeReview?.warnings || []),
-  ].slice(0, 5);
-  const strengths = (property.analysis?.strengths || []).slice(0, 5);
+  ].filter(([, v]) => v);
+
+  $("#modalTitle").textContent = property.title || "Propiedad";
+
   content.innerHTML = `
     <div class="modal-sticky-summary">
       <div>
@@ -1415,101 +1547,288 @@ function renderPropertyModal() {
       </div>
     </div>
     <div class="modal-tabs">
-      ${["Fotos", "Detalles", "Ubicación", "Costos", "Análisis IA"].map((label, index) => `<button class="${index === 0 ? "active" : ""}" data-modal-tab="${index}" type="button">${label}</button>`).join("")}
+      ${MODAL_TABS.map((slug) => `<button class="${slug === initialTab ? "active" : ""}" data-modal-tab="${slug}" type="button">${TAB_LABELS[slug]}</button>`).join("")}
     </div>
-    <section class="modal-tab-panel active" data-modal-panel="0">
-      <div class="modal-gallery modern">
-        ${photos.length ? photos.slice(0, 16).map((photo, index) => {
-          const roomItem = roomsById.get(photo.roomId);
-          return `
-            <figure class="${index === 0 ? "featured" : ""}">
-              <img src="${photoSrc(photo)}" alt="${escapeAttr(roomItem?.name || property.title || "Foto de propiedad")}">
-              <figcaption>${escapeHtml(roomItem?.name || photo.name || "Foto de propiedad")}</figcaption>
-            </figure>
-          `;
-        }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
-      </div>
-      ${property.videos.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, index) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${index + 1}</a>`).join(" ")}</div></div>` : ""}
+    <section class="modal-tab-panel ${initialTab === "ficha" ? "active" : ""}" data-modal-panel="ficha">
+      ${renderFichaPanel(property, photos, score)}
     </section>
-    <section class="modal-tab-panel" data-modal-panel="1">
-      <div class="detail-metrics">
-        <div><strong>${formatUsd(Number(property.price))}</strong><span>Precio</span></div>
-        <div><strong>${pricePerM2(property) ? `USD ${pricePerM2(property).toLocaleString("es-UY")}` : "--"}</strong><span>m² edificado</span></div>
-        <div><strong>${builtAreaForValue(property) || "--"} m²</strong><span>Construidos</span></div>
-        <div><strong>${property.landArea || "--"} m²</strong><span>Terreno</span></div>
-      </div>
-      ${property.description ? `<div class="modal-section"><h3>Descripción</h3><p class="public-description">${escapeHtml(property.description)}</p></div>` : ""}
-      <div class="modal-section">
-        <h3>Información</h3>
-        <div class="extra-list">${propertyInfoRows(property)}${renderPublicExtrasRows(property)}</div>
-      </div>
-      <div class="modal-actions-row">
-        <button class="primary" type="button">Contactar vendedor</button>
-        <button type="button">Compartir propiedad</button>
-      </div>
+    <section class="modal-tab-panel ${initialTab === "ambientes" ? "active" : ""}" data-modal-panel="ambientes">
+      ${renderAmbientesPanel(property)}
     </section>
-    <section class="modal-tab-panel" data-modal-panel="2">
-      <div class="location-panel">
-        <div class="location-map">
-          <div class="fallback-map">
-            <div class="fallback-map-label"><strong>${escapeHtml(property.neighborhood || "Montevideo")}</strong><span>${escapeHtml(property.address || property.city || "Ubicación aproximada")}</span></div>
-            <button class="fallback-pin modal-pin" style="left:50%;top:50%" type="button"><span>${escapeHtml(property.neighborhood || "OD")}</span></button>
-          </div>
-        </div>
-        <div class="modal-section">
-          <h3>Ubicación</h3>
-          <div class="extra-list">
-            <div class="extra-row"><span>Dirección</span><strong>${escapeHtml(property.address || "Pendiente")}</strong></div>
-            <div class="extra-row"><span>Barrio</span><strong>${escapeHtml(property.neighborhood || "Pendiente")}</strong></div>
-            <div class="extra-row"><span>Ciudad</span><strong>${escapeHtml(property.city || "Uruguay")}</strong></div>
-            <div class="extra-row"><span>Coordenadas</span><strong>${property.lat && property.lng ? `${property.lat}, ${property.lng}` : "Pendiente"}</strong></div>
-          </div>
-          ${property.mapUrl ? `<a class="source-map-link" href="${escapeAttr(property.mapUrl)}" target="_blank" rel="noreferrer">Abrir mapa fuente</a>` : ""}
-        </div>
-      </div>
+    <section class="modal-tab-panel ${initialTab === "checklist" ? "active" : ""}" data-modal-panel="checklist">
+      ${renderChecklistPanel(property, photos)}
     </section>
-    <section class="modal-tab-panel" data-modal-panel="3">
-      <div class="cost-layout">
-        <div class="modal-section">
-          <h3>Costos mensuales</h3>
-          ${monthlyCosts.length ? `
-            <div class="cost-bars">
-              ${monthlyCosts.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><div class="bar"><span style="width:${Math.max(8, Math.min(100, (value / Math.max(monthlyTotal, 1)) * 100))}%"></span></div><strong>${formatUsd(value)}</strong></div>`).join("")}
-            </div>
-            <div class="cost-total">Total estimado: <strong>${formatUsd(monthlyTotal)}</strong></div>
-          ` : `<p class="public-description">No hay costos mensuales declarados todavía.</p>`}
-        </div>
-        <div class="modal-section">
-          <h3>Documentación</h3>
-          <div class="doc-badges">${docs.length ? docs.map((doc) => `<span class="status-pill">${escapeHtml(doc)}</span>`).join("") : `<span class="status-pill warn">Costos sin verificar</span>`}</div>
-          ${yearlyCosts.length ? `<div class="extra-list">${yearlyCosts.map(([label, value]) => `<div class="extra-row"><span>${escapeHtml(label)}</span><strong>${formatUsd(value)} / año</strong></div>`).join("")}</div>` : ""}
-        </div>
-      </div>
+    <section class="modal-tab-panel ${initialTab === "datos" ? "active" : ""}" data-modal-panel="datos">
+      ${renderDatosPanel(property)}
     </section>
-    <section class="modal-tab-panel" data-modal-panel="4">
-      <div class="ai-detail-layout">
-        <div class="modal-section score-public">
-          <h3>Score OD</h3>
-          <div class="score-value">${score}</div>
-          ${property.analysis?.summary ? `<p>${escapeHtml(property.analysis.summary)}</p>` : `<p class="public-description">Score pendiente o sin explicación cargada.</p>`}
-          ${property.analysis?.categories ? `<div class="score-bars">${Object.entries(property.analysis.categories).map(([key, value]) => `
-            <div class="bar-row">
-              <span>${escapeHtml(labelize(key))}</span>
-              <div class="bar"><span style="width:${Math.max(0, Math.min(100, Number(value) * 10))}%"></span></div>
-              <span>${Number(value).toFixed(1)}</span>
-            </div>
-          `).join("")}</div>` : ""}
-        </div>
-        <div class="modal-section">
-          <h3>Fortalezas</h3>
-          ${strengths.length ? `<ul>${strengths.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="public-description">Sin fortalezas IA cargadas todavía.</p>`}
-          <h3>Puntos a considerar</h3>
-          ${warnings.length ? `<ul>${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="public-description">Sin alertas cargadas.</p>`}
-        </div>
-      </div>
+    <section class="modal-tab-panel ${initialTab === "costos" ? "active" : ""}" data-modal-panel="costos">
+      ${renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, docs)}
     </section>
   `;
+
+  startScoreBarAnimations(content);
   renderChat();
+}
+
+function renderFichaPanel(property, photos, score) {
+  const roomsById = new Map((property.rooms || []).map((r) => [r.id, r]));
+  const strengths = (property.analysis?.strengths || []).slice(0, 5);
+  const warnings = [...(property.analysis?.risks || []), ...(property.analysis?.inconsistencies || [])].slice(0, 5);
+  return `
+    <div class="modal-gallery modern">
+      ${photos.length ? photos.slice(0, 12).map((photo, i) => {
+        const room = roomsById.get(photo.roomId);
+        return `<figure class="${i === 0 ? "featured" : ""}">
+          <img src="${photoSrc(photo)}" alt="${escapeAttr(room?.name || property.title || "Foto")}">
+          <figcaption>${escapeHtml(room?.name || photo.name || "Foto de propiedad")}</figcaption>
+        </figure>`;
+      }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
+    </div>
+    ${property.videos?.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, i) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${i + 1}</a>`).join(" ")}</div></div>` : ""}
+    ${property.score ? `
+      <div class="modal-section score-public">
+        <h3>Score OD</h3>
+        <div class="score-value">${score}</div>
+        ${property.analysis?.summary ? `<p>${escapeHtml(property.analysis.summary)}</p>` : ""}
+        ${property.analysis?.categories ? `
+          <div class="score-bars">
+            ${Object.entries(property.analysis.categories).map(([key, val]) => `
+              <div class="bar-row">
+                <span>${escapeHtml(labelize(key))}</span>
+                <div class="bar bar-score"><div class="bar-fill" data-val="${Math.max(0, Math.min(100, Number(val) * 10))}"></div></div>
+                <span>${Number(val).toFixed(1)}</span>
+              </div>
+            `).join("")}
+          </div>
+        ` : ""}
+        ${(strengths.length || warnings.length) ? `
+          <div class="ficha-two-col">
+            ${strengths.length ? `<div><h4>Fortalezas</h4><ul>${strengths.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul></div>` : ""}
+            ${warnings.length ? `<div><h4>Puntos a considerar</h4><ul>${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul></div>` : ""}
+          </div>
+        ` : ""}
+      </div>
+    ` : `<p class="public-description" style="padding:22px 0">Sin análisis disponible todavía.</p>`}
+  `;
+}
+
+function renderAmbientesPanel(property) {
+  const rooms = property.rooms || [];
+  const improvements = property.analysis?.improvements || [];
+  const vi = property.analysis?.value_impact;
+
+  const roomCardsHtml = rooms.length ? `
+    <div class="room-cards-grid">
+      ${rooms.map((room) => {
+        const sv = room.score ? Number(room.score) : null;
+        const cls = sv === null ? "none" : sv >= 8 ? "hi" : sv >= 6.5 ? "mid" : "lo";
+        return `<div class="room-card" data-room-id="${escapeAttr(room.id)}" role="button" tabindex="0">
+          <div class="room-card-head">
+            <span class="room-card-name">${escapeHtml(room.name)}</span>
+            <span class="room-score-bubble score-${cls}" data-room-score="${sv !== null ? sv : ""}">${sv !== null ? "0.0" : "–"}</span>
+          </div>
+          <div class="room-card-meta">${[room.type, room.floor ? `Planta ${room.floor}` : "", room.area ? `${room.area} m²` : ""].filter(Boolean).join(" · ")}</div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div id="roomDetailInline" class="room-detail-panel hidden"></div>
+  ` : "";
+
+  const viNote = vi && (vi.estimated_value_delta_usd || vi.estimated_value_delta_percent) ? `
+    <div class="potential-note">
+      ▲ Impacto estimado con mejoras:
+      ${vi.estimated_value_delta_usd ? `<strong>${formatUsd(vi.estimated_value_delta_usd)}</strong>` : ""}
+      ${vi.estimated_value_delta_percent ? `<strong>(+${Number(vi.estimated_value_delta_percent).toFixed(0)}%)</strong>` : ""}
+      ${vi.notes ? `· ${escapeHtml(vi.notes)}` : ""}
+    </div>
+  ` : "";
+
+  const mejoras = improvements.length ? `
+    <div class="modal-section" style="margin-top:20px">
+      <h3>Mejoras sugeridas</h3>
+      <div class="mejoras-list">
+        ${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}
+      </div>
+      ${viNote}
+    </div>
+  ` : `<p class="public-description" style="padding-top:16px;padding-bottom:4px">Sin mejoras IA sugeridas todavía.</p>`;
+
+  if (!rooms.length && !improvements.length) {
+    return `<p class="public-description" style="padding:22px 0">Sin datos de ambientes disponibles.</p>`;
+  }
+  return roomCardsHtml + mejoras;
+}
+
+function renderChecklistPanel(property, photos) {
+  const rooms = property.rooms || [];
+  const photosByRoom = new Map();
+  photos.forEach((p) => {
+    if (p.roomId) {
+      if (!photosByRoom.has(p.roomId)) photosByRoom.set(p.roomId, []);
+      photosByRoom.get(p.roomId).push(p);
+    }
+  });
+
+  const roomsWithPhoto = rooms.filter((r) => photosByRoom.has(r.id)).length;
+  const completePct = rooms.length > 0 ? Math.round((roomsWithPhoto / rooms.length) * 100) : 0;
+  const pctColor = completePct >= 80 ? "var(--green)" : completePct >= 50 ? "var(--gold)" : "var(--red)";
+
+  const infraItems = [
+    "Tablero eléctrico",
+    "Medidor de agua / pozo",
+    "Tanque de agua",
+    "Conexiones de servicios (UTE, OSE, Gas)",
+    "Planos aprobados",
+    "Fachada exterior",
+  ];
+
+  const roomRows = rooms.length ? rooms.map((room) => {
+    const has = photosByRoom.has(room.id);
+    return `<div class="checklist-row">
+      <span class="check-icon">${has ? "✅" : "⚠️"}</span>
+      <span class="check-label">${escapeHtml(room.name)}${room.area ? ` <span style="color:var(--muted);font-size:11px">· ${room.area} m²</span>` : ""}</span>
+      <span class="check-status ${has ? "done" : "pending"}">${has ? "Con foto" : "Pendiente"}</span>
+    </div>`;
+  }).join("") : `<p class="public-description">Sin ambientes cargados.</p>`;
+
+  const infraRows = infraItems.map((item) => `
+    <div class="checklist-row">
+      <span class="check-icon">⚠️</span>
+      <span class="check-label">${escapeHtml(item)}</span>
+      <span class="check-status pending">Pendiente</span>
+    </div>
+  `).join("");
+
+  return `
+    <div class="modal-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <h3 style="margin:0">Fotos por ambiente</h3>
+        <span style="font-size:13px;font-weight:600;color:${pctColor}">${roomsWithPhoto}/${rooms.length} · ${completePct}%</span>
+      </div>
+      <div class="checklist-section">${roomRows}</div>
+    </div>
+    <div class="modal-section">
+      <h3>Infraestructura y documentación</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Ítems bloqueantes para el comprador. Su ausencia reduce conversión.</p>
+      <div class="checklist-section">${infraRows}</div>
+    </div>
+    ${(property.plans?.length) ? `
+      <div class="modal-section">
+        <h3>Planos</h3>
+        <div class="doc-badges">${property.plans.map((_, i) => `<span class="status-pill">Plano ${i + 1}</span>`).join("")}</div>
+      </div>
+    ` : ""}
+  `;
+}
+
+function renderDatosPanel(property) {
+  return `
+    <div class="detail-metrics">
+      <div><strong>${formatUsd(Number(property.price))}</strong><span>Precio</span></div>
+      <div><strong>${pricePerM2(property) ? `USD ${pricePerM2(property).toLocaleString("es-UY")}` : "--"}</strong><span>m² edificado</span></div>
+      <div><strong>${builtAreaForValue(property) || "--"} m²</strong><span>Construidos</span></div>
+      <div><strong>${property.landArea || "--"} m²</strong><span>Terreno</span></div>
+    </div>
+    ${property.description ? `<div class="modal-section"><h3>Descripción</h3><p class="public-description">${escapeHtml(property.description)}</p></div>` : ""}
+    <div class="modal-section">
+      <h3>Información</h3>
+      <div class="extra-list">${propertyInfoRows(property)}${renderPublicExtrasRows(property)}</div>
+    </div>
+    <div class="modal-section">
+      <h3>Ubicación</h3>
+      <div class="extra-list">
+        <div class="extra-row"><span>Dirección</span><strong>${escapeHtml(property.address || "Pendiente")}</strong></div>
+        <div class="extra-row"><span>Barrio</span><strong>${escapeHtml(property.neighborhood || "Pendiente")}</strong></div>
+        <div class="extra-row"><span>Ciudad</span><strong>${escapeHtml(property.city || "Uruguay")}</strong></div>
+        ${property.lat && property.lng ? `<div class="extra-row"><span>Coordenadas</span><strong>${property.lat}, ${property.lng}</strong></div>` : ""}
+      </div>
+      ${property.mapUrl ? `<a class="source-map-link" href="${escapeAttr(property.mapUrl)}" target="_blank" rel="noreferrer">Abrir mapa fuente</a>` : ""}
+    </div>
+    <div class="modal-actions-row">
+      <button class="primary" type="button">Contactar vendedor</button>
+      <button type="button">Compartir propiedad</button>
+    </div>
+  `;
+}
+
+function renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, docs) {
+  return `
+    <div class="cost-layout">
+      <div class="modal-section">
+        <h3>Costos mensuales</h3>
+        ${monthlyCosts.length ? `
+          <div class="cost-bars">
+            ${monthlyCosts.map(([label, value]) => `<div>
+              <span>${escapeHtml(label)}</span>
+              <div class="bar"><span style="width:${Math.max(8, Math.min(100, (value / Math.max(monthlyTotal, 1)) * 100))}%"></span></div>
+              <strong>${formatUsd(value)}</strong>
+            </div>`).join("")}
+          </div>
+          <div class="cost-total">Total estimado: <strong>${formatUsd(monthlyTotal)}</strong></div>
+        ` : `<p class="public-description">No hay costos mensuales declarados todavía.</p>`}
+      </div>
+      <div class="modal-section">
+        <h3>Documentación</h3>
+        <div class="doc-badges">${docs.length ? docs.map((doc) => `<span class="status-pill">${escapeHtml(doc)}</span>`).join("") : `<span class="status-pill warn">Costos sin verificar</span>`}</div>
+        ${yearlyCosts.length ? `<div class="extra-list">${yearlyCosts.map(([label, value]) => `<div class="extra-row"><span>${escapeHtml(label)}</span><strong>${formatUsd(value)} / año</strong></div>`).join("")}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function startScoreBarAnimations(container) {
+  const fills = container.querySelectorAll(".bar-fill[data-val]");
+  if (!fills.length) return;
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const fill = entry.target;
+      const val = Math.max(0, Math.min(100, Number(fill.dataset.val)));
+      requestAnimationFrame(() => { fill.style.width = val + "%"; });
+      observer.unobserve(fill);
+    });
+  }, { threshold: 0.1 });
+  fills.forEach((fill) => observer.observe(fill));
+}
+
+function animateRoomScore(el, targetValue) {
+  if (el.dataset.animated) return;
+  el.dataset.animated = "1";
+  const duration = 600;
+  const start = performance.now();
+  function step(now) {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = (eased * targetValue).toFixed(1);
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = targetValue.toFixed(1);
+  }
+  requestAnimationFrame(step);
+}
+
+function openRoomSheet(room, property) {
+  const sheet = $("#roomSheet");
+  const body = $("#roomSheetBody");
+  if (!sheet || !body) return;
+  const improvements = (property.analysis?.improvements || []).slice(0, 3);
+  body.innerHTML = `
+    <h3 style="font-size:17px;margin-bottom:4px">${escapeHtml(room.name)}</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">
+      ${[room.type, room.floor ? `Planta ${room.floor}` : "", room.area ? `${room.area} m²` : ""].filter(Boolean).join(" · ")}
+    </p>
+    ${room.score ? `<div style="margin-bottom:16px"><strong style="font-size:28px;color:${Number(room.score) >= 8 ? "var(--green)" : Number(room.score) >= 6.5 ? "var(--gold)" : "var(--red)"}">${Number(room.score).toFixed(1)}★</strong><span style="font-size:12px;color:var(--muted);margin-left:6px">Score OD</span></div>` : ""}
+    ${room.notes ? `<p style="font-size:13px;line-height:1.6;margin-bottom:16px">${escapeHtml(room.notes)}</p>` : ""}
+    ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}</div>` : ""}
+  `;
+  sheet.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeRoomSheet() {
+  const sheet = $("#roomSheet");
+  if (!sheet) return;
+  sheet.classList.remove("open");
+  document.body.style.overflow = "";
 }
 
 function renderPublicExtras(property) {
@@ -1867,6 +2186,8 @@ function updateSelectedFromForm() {
   property.lng = property.lng === "" ? "" : roundCoord(property.lng);
   hydrateCoordinatesFromMapUrl(property, form);
   saveState();
+  renderSellerCompleteness();
+  renderCostsBanner();
 }
 
 function roundCoord(value) {
@@ -2783,90 +3104,142 @@ function formatAssistantAnswer(result) {
   return parts.filter(Boolean).join("\n\n");
 }
 
+function preFilterForSearch(properties, query) {
+  if (!query) return properties;
+  const q = query.toLowerCase();
+  const milMatch = q.match(/(\d[\d.]*)[\s]*(?:mil|k)(?:\s|$)/);
+  const plainMatch = q.match(/\busd?\s*(\d{4,})\b/);
+  let maxPrice = Infinity;
+  if (milMatch) maxPrice = parseFloat(milMatch[1]) * 1000;
+  else if (plainMatch) maxPrice = parseInt(plainMatch[1]);
+  const bedMatch = q.match(/(\d+)\s*(?:dorm(?:itorios?)?|hab(?:itaciones?)?|cuartos?)/);
+  const minBeds = bedMatch ? parseInt(bedMatch[1]) : 0;
+  const filtered = properties.filter((p) => {
+    if (maxPrice < Infinity && p.price > maxPrice * 1.1) return false;
+    if (minBeds > 0 && (p.bedrooms || 0) < minBeds) return false;
+    return true;
+  });
+  return filtered.length >= 1 ? filtered : properties;
+}
+
+function buildSearchPrompt(query, summaries) {
+  const lines = summaries.map((p) =>
+    `${p.id}: ${p.title}, ${p.type}, ${p.neighborhood}, USD ${p.price_usd}, ${p.bedrooms}d/${p.bathrooms}b, ${p.built_m2}m²` +
+    (p.extras?.length ? `, ${p.extras.join(", ")}` : "")
+  );
+  return `Buscador inmobiliario Uruguay. Filtrá propiedades según la búsqueda del comprador.
+
+Devolvé SOLO JSON: {"matching_ids":["id1","id2"],"explanation":"frase corta en español"}
+
+- Solo IDs de propiedades que coincidan con la búsqueda.
+- Ordenar matching_ids de mejor a peor.
+- Si ninguna coincide, devolvé matching_ids vacío.
+
+Búsqueda: ${query || "(sin texto)"}
+
+Propiedades:
+${lines.join("\n")}`;
+}
+
+async function* streamSearchCall(messages) {
+  const response = await fetch(apiUrl("/api/openrouter/stream"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(settings.apiKey ? { "X-OpenRouter-Key": settings.apiKey } : {}),
+    },
+    body: JSON.stringify({ messages, temperature: 0.1, max_tokens: 400 }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(humanAiError(response.status, text));
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ") && line !== "data: [DONE]") {
+        try {
+          const data = JSON.parse(line.slice(6));
+          const content = data.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch {}
+      }
+    }
+  }
+}
+
+function scheduleAiSearch() {
+  clearTimeout(aiSearchDebounceTimer);
+  aiSearchDebounceTimer = setTimeout(() => {
+    if ($("#aiSearchInput")?.value.trim().length >= 3) runAiPropertySearch();
+  }, 300);
+}
+
 async function runAiPropertySearch() {
   const query = $("#aiSearchInput").value.trim();
   if (!query && !aiSearchImageDataUrl) return;
+  clearTimeout(aiSearchDebounceTimer);
   $("#aiSearchBtn").disabled = true;
-  $("#aiSearchBtn").textContent = "Buscando...";
-  setAiSearchProgress("Analizando tu búsqueda...");
+  setAiSearchProgress(true);
   rememberSearch(query);
   try {
     await nextFrameDelay();
-    setAiSearchProgress("Encontrando propiedades similares...");
-    const source = state.properties.filter((property) => property.status === "published");
-    const summaries = source.map((property) => ({
-      id: property.id,
-      title: property.title,
-      type: property.type,
-      neighborhood: property.neighborhood,
-      city: property.city,
-      price_usd: property.price,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      built_m2: builtAreaForValue(property),
-      usd_m2: pricePerM2(property),
-      description: property.description,
-      score: property.score,
-      cover_photo_name: property.photos[0]?.name || null,
-      cover_photo_url: photoSrc(property.photos[0]) || null,
-      photo_count: property.photos.length,
-      extras: property.extras,
+    const source = state.properties.filter((p) => p.status === "published");
+    const preFiltered = preFilterForSearch(source, query);
+    const summaries = preFiltered.map((p) => ({
+      id: p.id,
+      title: p.title,
+      type: p.type,
+      neighborhood: p.neighborhood,
+      city: p.city,
+      price_usd: p.price,
+      bedrooms: p.bedrooms,
+      bathrooms: p.bathrooms,
+      built_m2: builtAreaForValue(p),
+      extras: (p.extras || []).map((e) => e.name || e).filter(Boolean),
+      description: p.description,
     }));
-    const model = modelForFunction(aiSearchImageDataUrl ? "vision" : "search");
     const visualCandidates = source
-      .filter((property) => photoSrc(property.photos[0]))
+      .filter((p) => photoSrc(p.photos[0]))
       .slice(0, 10)
-      .map((property) => ({ id: property.id, title: property.title, image: photoSrc(property.photos[0]) }));
-    const prompt = `Sos un buscador inmobiliario IA para Uruguay. Tenés que filtrar propiedades reales para el portal cliente.
-
-Reglas:
-- Devolvé SOLO IDs de propiedades existentes.
-- Si la búsqueda tiene texto, interpretá intención, zona, precio, tipo, dormitorios, estilo y amenities.
-- Si hay imagen de referencia, compará estilo visual, tipo de ambiente, luminosidad, terraza/vista/pileta/fachada/materiales con las fotos candidatas.
-- Si ninguna propiedad sirve, devolvé matching_ids vacío.
-- Ordená matching_ids de mejor a peor.
-
-Devuelve JSON válido:
-{
-  "matching_ids": string[],
-  "explanation": string,
-  "visual_matches": [{"id": string, "reason": string}],
-  "suggested_filters": {"max_price": number|null, "min_bedrooms": number|null, "type": string|null}
-}
-
-Búsqueda textual: ${query || "(sin texto, usar imagen)"}
-
-Propiedades:
-${JSON.stringify(summaries, null, 2)}
-
-Fotos candidatas incluidas en este mensaje, en orden:
-${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: item.id, title: item.title })), null, 2)}`;
+      .map((p) => ({ id: p.id, title: p.title, image: photoSrc(p.photos[0]) }));
+    const prompt = buildSearchPrompt(query, summaries);
     const content = (aiSearchImageDataUrl || visualCandidates.length) && modelQueueSupportsVision(aiSearchImageDataUrl ? "vision" : "search")
       ? [
         { type: "text", text: prompt },
         ...(aiSearchImageDataUrl ? [{ type: "text", text: "Imagen de referencia del comprador:" }, { type: "image_url", image_url: { url: aiSearchImageDataUrl } }] : []),
-        ...visualCandidates.flatMap((item, index) => [
-          { type: "text", text: `Foto candidata ${index + 1}. property_id=${item.id}` },
+        ...visualCandidates.flatMap((item, i) => [
+          { type: "text", text: `Foto candidata ${i + 1}. property_id=${item.id}` },
           { type: "image_url", image_url: { url: item.image } },
         ]),
       ]
       : prompt;
-    const result = await callOpenRouter({
-      functionType: aiSearchImageDataUrl ? "vision" : "search",
-      messages: [{ role: "user", content }],
-    });
-    setAiSearchProgress("Aplicando filtros...");
-    const validIds = new Set(source.map((property) => property.id));
+    let accumulated = "";
+    for await (const token of streamSearchCall([{ role: "user", content }])) {
+      accumulated += token;
+      const expMatch = accumulated.match(/"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (expMatch) setStreamingText(expMatch[1].replace(/\\n/g, " ").trim());
+    }
+    const result = parseLooseJson(accumulated) || {};
+    const validIds = new Set(source.map((p) => p.id));
     state.aiSearchIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
     state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
     saveState();
     renderMarketplace();
   } catch (error) {
     const fallback = query.toLowerCase();
-    const source = state.properties.filter((property) => property.status === "published");
+    const source = state.properties.filter((p) => p.status === "published");
     const fallbackIds = source
-      .filter((property) => `${property.title} ${property.neighborhood} ${property.city} ${property.description} ${JSON.stringify(property.extras || [])}`.toLowerCase().includes(fallback))
-      .map((property) => property.id);
+      .filter((p) => `${p.title} ${p.neighborhood} ${p.city} ${p.description} ${JSON.stringify(p.extras || [])}`.toLowerCase().includes(fallback))
+      .map((p) => p.id);
     state.aiSearchIds = fallbackIds.length ? fallbackIds : null;
     state.aiSearchExplanation = fallbackIds.length
       ? `No pude usar IA (${error.message}). Apliqué búsqueda textual sobre las fichas publicadas.`
@@ -2874,19 +3247,22 @@ ${JSON.stringify(visualCandidates.map((item, index) => ({ order: index + 1, id: 
     saveState();
     renderMarketplace();
   } finally {
-    setAiSearchProgress("");
+    setAiSearchProgress(false);
+    setStreamingText("");
     $("#aiSearchBtn").disabled = false;
-    $("#aiSearchBtn").textContent = "Buscar con IA";
   }
 }
 
-function setAiSearchProgress(message) {
+function setAiSearchProgress(active) {
   const progress = $("#aiSearchProgress");
   if (!progress) return;
-  document.body.classList.toggle("ai-searching", Boolean(message));
-  progress.classList.toggle("hidden", !message);
-  const label = progress.querySelector("strong");
-  if (label) label.textContent = message;
+  document.body.classList.toggle("ai-searching", Boolean(active));
+  progress.classList.toggle("hidden", !active);
+}
+
+function setStreamingText(text) {
+  const el = $("#aiStreamingText");
+  if (el) el.textContent = text;
 }
 
 function nextFrameDelay() {
@@ -3316,6 +3692,7 @@ function bindEvents() {
   $("#aiSearchInput").addEventListener("input", () => {
     setSearchPanelOpen(true);
     renderSearchUi();
+    scheduleAiSearch();
   });
   document.addEventListener("click", (event) => {
     if (event.target.closest(".ai-search-hero")) return;
@@ -3336,6 +3713,17 @@ function bindEvents() {
       saveState();
       renderMarketplace();
     }
+  });
+  $("#suggestionChips")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-suggestion]");
+    if (!chip) return;
+    const input = $("#aiSearchInput");
+    if (!input) return;
+    input.value = chip.dataset.suggestion;
+    setSearchPanelOpen(true);
+    renderSearchUi();
+    scheduleAiSearch();
+    input.focus();
   });
   $("#searchModeToggle").addEventListener("click", (event) => {
     const button = event.target.closest("[data-search-mode]");
@@ -3695,12 +4083,50 @@ function bindEvents() {
     renderChat();
   });
   $("#closeChatBtn").addEventListener("click", () => $("#chatWidget").classList.add("hidden"));
-  $("#closePropertyModalBtn").addEventListener("click", () => $("#propertyModal").close());
+  $("#closePropertyModalBtn").addEventListener("click", () => {
+    $("#propertyModal").close();
+    closeRoomSheet();
+    history.replaceState(null, "", location.pathname);
+  });
   $("#propertyModalContent").addEventListener("click", (event) => {
-    const tab = event.target.dataset.modalTab;
-    if (tab === undefined) return;
-    $$("#propertyModalContent [data-modal-tab]").forEach((button) => button.classList.toggle("active", button.dataset.modalTab === tab));
-    $$("#propertyModalContent [data-modal-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.modalPanel === tab));
+    const tabBtn = event.target.closest("[data-modal-tab]");
+    if (tabBtn) {
+      const tab = tabBtn.dataset.modalTab;
+      $$("#propertyModalContent [data-modal-tab]").forEach((btn) => btn.classList.toggle("active", btn.dataset.modalTab === tab));
+      $$("#propertyModalContent [data-modal-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.modalPanel === tab));
+      history.replaceState(null, "", "#" + tab);
+      return;
+    }
+    const roomCard = event.target.closest("[data-room-id]");
+    if (roomCard) {
+      const property = state.properties.find((item) => item.id === state.selectedId) || selectedProperty();
+      const room = (property?.rooms || []).find((r) => r.id === roomCard.dataset.roomId);
+      if (!room || !property) return;
+      const scoreBubble = roomCard.querySelector(".room-score-bubble");
+      if (scoreBubble && room.score !== null && room.score !== undefined) {
+        animateRoomScore(scoreBubble, Number(room.score));
+      }
+      if (window.innerWidth < 768) {
+        openRoomSheet(room, property);
+      } else {
+        const inline = $("#roomDetailInline");
+        if (!inline) return;
+        const improvements = (property.analysis?.improvements || []).slice(0, 3);
+        inline.classList.remove("hidden");
+        inline.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div>
+              <strong style="font-size:16px">${escapeHtml(room.name)}</strong>
+              <p style="font-size:12px;color:var(--muted);margin-top:2px">${[room.type, room.floor ? `Planta ${room.floor}` : "", room.area ? `${room.area} m²` : ""].filter(Boolean).join(" · ")}</p>
+            </div>
+            ${room.score ? `<strong style="font-size:28px;color:var(--green)">${Number(room.score).toFixed(1)}★</strong>` : ""}
+          </div>
+          ${room.notes ? `<p style="font-size:13px;line-height:1.6;margin-bottom:14px">${escapeHtml(room.notes)}</p>` : ""}
+          ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}</div>` : ""}
+        `;
+        inline.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
   });
   $("#chatForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -3733,6 +4159,7 @@ function updateRoomFromEvent(event) {
 }
 
 bindEvents();
+$("#roomSheetOverlay")?.addEventListener("click", closeRoomSheet);
 if (localStorage.getItem("od-sidebar-collapsed") === "1") document.body.classList.add("sidebar-collapsed");
 setView(location.pathname === "/admin/ai" ? "settings" : "marketplace");
 loadServerConfig();

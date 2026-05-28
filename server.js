@@ -66,6 +66,10 @@ const server = http.createServer(async (req, res) => {
       await handleOpenRouter(req, res);
       return;
     }
+    if (req.method === "POST" && parsed.pathname === "/api/openrouter/stream") {
+      await handleOpenRouterStream(req, res);
+      return;
+    }
     if (req.method === "POST" && parsed.pathname === "/api/openrouter/test") {
       await handleOpenRouterTest(req, res);
       return;
@@ -589,6 +593,68 @@ async function handleOpenRouter(req, res) {
     return;
   }
   sendJson(res, 200, { ...result.json, meta: result.meta });
+}
+
+const SEARCH_STREAM_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+];
+
+async function handleOpenRouterStream(req, res) {
+  const body = await readBody(req);
+  const { apiKey, messages, temperature = 0.1, max_tokens = 400 } = JSON.parse(body || "{}");
+  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
+  if (!effectiveApiKey) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Falta API key de OpenRouter." }));
+    return;
+  }
+  const origin = req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173";
+  for (let i = 0; i < SEARCH_STREAM_MODELS.length; i++) {
+    const model = SEARCH_STREAM_MODELS[i];
+    if (i > 0) await new Promise((r) => setTimeout(r, 500));
+    let response;
+    try {
+      response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${effectiveApiKey}`,
+          "HTTP-Referer": origin,
+          "X-Title": "Owner Direct Demo",
+        },
+        body: JSON.stringify({ model, messages, temperature, max_tokens, stream: true }),
+      });
+    } catch {
+      continue;
+    }
+    if (response.status === 429 && i < SEARCH_STREAM_MODELS.length - 1) continue;
+    if (!response.ok) {
+      res.writeHead(response.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `Modelo ${model} respondió ${response.status}.` }));
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": req.headers.origin || "*",
+    });
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+    } finally {
+      res.end();
+    }
+    return;
+  }
+  res.writeHead(502, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Todos los modelos de búsqueda fallaron." }));
 }
 
 async function handleOpenRouterTest(req, res) {

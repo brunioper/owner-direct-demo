@@ -6,7 +6,7 @@
     <title>Owner Direct Demo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..900,75,1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..900,75,1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -66,7 +66,7 @@
                   <div class="roomix-search-row">
                     <div class="roomix-search-input">
                       <div id="aiSearchThumb" class="ai-search-thumb hidden"></div>
-                      <input id="aiSearchInput" type="search" placeholder="Casa con jardín cerca de colegios, buena conexión y parrillero..." />
+                      <input id="aiSearchInput" type="search" placeholder="Buscá por barrio, precio, ambientes, amenities..." />
                       <label class="upload-btn ai-image-btn icon-only" title="Buscar por imagen" aria-label="Buscar por imagen">
                         Imagen
                         <input id="aiSearchImageInput" type="file" accept="image/*" />
@@ -82,12 +82,17 @@
                     </div>
                   </div>
                 </div>
-                <div id="aiSearchProgress" class="ai-progress hidden">
-                  <span></span>
-                  <div>
-                    <strong>Analizando tu búsqueda...</strong>
-                    <small>Buscando coincidencias reales entre las propiedades publicadas.</small>
-                  </div>
+                <div id="suggestionChips" class="suggestion-chips-row">
+                  <button type="button" class="suggestion-chip" data-suggestion="4 dormitorios en Carrasco">4 dormitorios en Carrasco</button>
+                  <button type="button" class="suggestion-chip" data-suggestion="Hasta USD 400k con parrillero">Hasta USD 400k con parrillero</button>
+                  <button type="button" class="suggestion-chip" data-suggestion="Casa con jardín">Casa con jardín</button>
+                </div>
+                <div id="aiSearchProgress" class="ai-typing-indicator hidden">
+                  <span class="typing-dot"></span>
+                  <span class="typing-dot"></span>
+                  <span class="typing-dot"></span>
+                  <span class="ai-searching-label">Buscando propiedades</span>
+                  <span id="aiStreamingText" class="ai-streaming-text"></span>
                 </div>
                 <div id="appliedSearchChips" class="applied-chips"></div>
                 <div id="aiSearchImagePreview" class="ai-search-preview hidden"></div>
@@ -146,6 +151,8 @@
                 </div>
               </div>
               <div id="clientListPane">
+                <p id="neighborhoodContext" class="neighborhood-context"></p>
+                <p id="aiResultSummary" class="ai-result-summary hidden"></p>
                 <div id="clientPropertyGrid" class="property-grid compact"></div>
               </div>
               <div id="clientMapPane" class="hidden">
@@ -191,6 +198,7 @@
           <button id="duplicatePropertyBtn">Duplicar</button>
         </div>
         <div id="editorProgress" class="editor-progress"></div>
+        <div id="sellerCompleteness"></div>
         <div class="editor-tabs">
           <button class="active" data-editor-tab="import">Importar</button>
           <button data-editor-tab="data">Datos básicos</button>
@@ -326,6 +334,9 @@
           </div>
 
           <div class="panel data-step" data-editor-panel="costs">
+            <div id="costsBanner" class="costs-incomplete-banner hidden">
+              ⚠ Datos de costo incompletos — el comprador no puede evaluar el costo real. Completar esto aumenta la conversión.
+            </div>
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Costos verificables</p>
@@ -490,5 +501,12 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./app.js"></script>
+  <div id="roomSheet">
+    <div class="room-sheet-overlay" id="roomSheetOverlay"></div>
+    <div class="room-sheet-content">
+      <div class="room-sheet-handle"></div>
+      <div class="room-sheet-body" id="roomSheetBody"></div>
+    </div>
+  </div>
   </body>
 </html>
