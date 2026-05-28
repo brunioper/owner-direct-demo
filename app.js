@@ -873,6 +873,49 @@ function manageablePropertiesForSync() {
   return state.properties.filter(propertyOwnedByCurrentUser);
 }
 
+function renderSellerMarketIntel(property) {
+  if (!property || !canManageProperties()) return "";
+  const neighborhood = property.neighborhood;
+  if (!neighborhood) return "";
+
+  const stats = computeNeighborhoodStats(neighborhood);
+  const thisPrice = Number(property.price) || 0;
+  const avgM2 = computeNeighborhoodAvgM2(neighborhood);
+  const thisPriceM2 = pricePerM2(property);
+  let priceVsAvg = null;
+  if (thisPriceM2 && avgM2 && avgM2 > 0) {
+    priceVsAvg = Math.round(((thisPriceM2 - avgM2) / avgM2) * 100);
+  }
+
+  return `
+    <div class="seller-market-intel">
+      <div class="market-intel-head">
+        <strong>Inteligencia de mercado</strong>
+        <span>${escapeHtml(neighborhood)}</span>
+      </div>
+      <div class="market-intel-grid">
+        <div class="market-intel-stat">
+          <strong>${stats.activeCount}</strong>
+          <span>Activas en el barrio</span>
+        </div>
+        <div class="market-intel-stat">
+          <strong>${avgM2 ? `${MARKET_CONFIG.currency} ${avgM2.toLocaleString(MARKET_CONFIG.locale)}` : "—"}</strong>
+          <span>Promedio m² barrio</span>
+        </div>
+        <div class="market-intel-stat">
+          <strong>${priceVsAvg !== null ? `${priceVsAvg > 0 ? "+" : ""}${priceVsAvg}%` : "—"}</strong>
+          <span>vs. promedio barrio</span>
+        </div>
+        <div class="market-intel-stat">
+          <strong>${stats.avgScore || "—"}${stats.avgScore ? "★" : ""}</strong>
+          <span>Score promedio barrio</span>
+        </div>
+      </div>
+      <p class="market-intel-sentence hidden" data-market-intel-sentence=""></p>
+    </div>
+  `;
+}
+
 function renderBackofficeDashboard() {
   const dashboard = $("#backofficeDashboard");
   if (!dashboard) return;
@@ -914,7 +957,14 @@ function renderBackofficeDashboard() {
       </div>
       ${smartActions.length ? smartActions.map((action) => `<div class="smart-action ${action.level}">${escapeHtml(action.text)}</div>`).join("") : `<div class="smart-action ok">Todo lo cargado está razonablemente completo.</div>`}
     </div>
+    ${renderSellerMarketIntel(selectedProperty())}
   `;
+
+  // Async: load AI sentence for market intel
+  const sp = selectedProperty();
+  if (sp?.neighborhood) {
+    loadNeighborhoodData(sp.neighborhood, sp.city || MARKET_CONFIG.defaultCity);
+  }
 }
 
 function renderProperties() {
@@ -1018,6 +1068,33 @@ function clientFilteredProperties() {
   });
 }
 
+function renderMarketContextBar(properties) {
+  const ctxEl = $("#neighborhoodContext");
+  if (!ctxEl) return;
+  if (!properties.length) { ctxEl.textContent = ""; return; }
+
+  const neighborhoods = [...new Set(properties.map((p) => p.neighborhood).filter(Boolean))];
+  const marketName = neighborhoods.length === 1 ? neighborhoods[0] : "Todos los mercados";
+
+  const prices = properties.map((p) => Number(p.price)).filter((v) => v > 0);
+  const m2Prices = properties.map((p) => pricePerM2(p)).filter(Boolean);
+  const avgM2 = m2Prices.length ? Math.round(m2Prices.reduce((s, v) => s + v, 0) / m2Prices.length) : null;
+  const minPrice = prices.length ? Math.min(...prices) : null;
+  const maxPrice = prices.length ? Math.max(...prices) : null;
+  const count = properties.length;
+
+  const parts = [
+    escapeHtml(marketName),
+    avgM2 ? `Precio promedio: USD ${avgM2.toLocaleString(MARKET_CONFIG.locale)}/m²` : null,
+    `${count} ${count === 1 ? "propiedad disponible" : "propiedades disponibles"}`,
+    minPrice && maxPrice && minPrice !== maxPrice
+      ? `${formatUsd(minPrice)} – ${formatUsd(maxPrice)}`
+      : null,
+  ].filter(Boolean);
+
+  ctxEl.textContent = parts.join("  ·  ");
+}
+
 function skeletonCard() {
   const article = document.createElement("article");
   article.className = "property-card public-card skeleton-card";
@@ -1057,15 +1134,7 @@ function renderMarketplace() {
     aiSummary.textContent = showSummary ? publicExplanation : "";
   }
 
-  // Neighborhood context line
-  const ctxEl = $("#neighborhoodContext");
-  if (ctxEl) {
-    const publishedForCtx = state.properties.filter((p) => p.status === "published");
-    const m2List = publishedForCtx.map((p) => pricePerM2(p)).filter(Boolean);
-    const avgM2 = m2List.length ? Math.round(m2List.reduce((s, v) => s + v, 0) / m2List.length) : null;
-    const count = properties.length;
-    ctxEl.textContent = `Colinas de Carrasco · Precio promedio del barrio: ${avgM2 ? `USD ${avgM2.toLocaleString("es-UY")}/m²` : "—"} · ${count} ${count === 1 ? "propiedad disponible" : "propiedades disponibles"}`;
-  }
+  renderMarketContextBar(properties);
 
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
   grid.classList.toggle("list-mode", state.clientView === "list");
@@ -1359,7 +1428,7 @@ async function generateListingHintsIfNeeded(property) {
       messages: [
         {
           role: "system",
-          content: `Sos un consultor inmobiliario en Uruguay. Devolvé SOLO un JSON con este formato exacto: {"campo1": "razón (1 oración corta)", "campo2": "..."}. Contexto: propiedad tipo ${escapeHtml(property.type || "Casa")}, barrio ${escapeHtml(property.neighborhood || "Colinas de Carrasco")}, precio USD ${Number(property.price) || "sin definir"}. Sé directo y específico, sin marketing.`,
+          content: `Sos un consultor inmobiliario en ${MARKET_CONFIG.country}. Devolvé SOLO un JSON con este formato exacto: {"campo1": "razón (1 oración corta)", "campo2": "..."}. Contexto: propiedad tipo ${escapeHtml(property.type || "Casa")}, barrio ${escapeHtml(property.neighborhood || MARKET_CONFIG.defaultCity)}, precio ${MARKET_CONFIG.currency} ${Number(property.price) || "sin definir"}. Sé directo y específico, sin marketing.`,
         },
         {
           role: "user",
@@ -1811,9 +1880,7 @@ function renderPropertyModal() {
   const score = property.score ? Number(property.score).toFixed(1) : "--";
   const docs = verifiedDocumentTypes(property);
   const monthlyCosts = [
-    ["UTE", Number(property.uteAvg || 0)],
-    ["OSE", Number(property.oseAvg || 0)],
-    ["Antel", Number(property.antelAvg || 0)],
+    ...MARKET_CONFIG.utilityProviders.map((u) => [u.name, Number(property[u.field] || 0)]),
     ["Gastos comunes", Number(property.commonFees || 0)],
     ["Seguro hogar", Number(property.insuranceAvg || 0)],
   ].filter(([, v]) => v);
@@ -1861,11 +1928,23 @@ function renderPropertyModal() {
     <section class="modal-tab-panel ${initialTab === "costos" ? "active" : ""}" data-modal-panel="costos">
       ${renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, docs)}
     </section>
+    ${renderComparables(property)}
   `;
 
   startScoreBarAnimations(content);
   startMortgageCalc(content, Number(property.price));
   renderChat();
+
+  // Async: load neighborhood card data (updates placeholder after render)
+  if (property.neighborhood) {
+    loadNeighborhoodData(property.neighborhood, property.city || MARKET_CONFIG.defaultCity);
+  }
+
+  // Wire comparable card clicks
+  content.querySelectorAll("[data-comparable-id]").forEach((el) => {
+    el.addEventListener("click", () => openPropertyModal(el.dataset.comparableId));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") openPropertyModal(el.dataset.comparableId); });
+  });
 }
 
 function renderFichaPanel(property, photos, score) {
@@ -1883,6 +1962,7 @@ function renderFichaPanel(property, photos, score) {
       }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
     </div>
     ${property.videos?.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, i) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${i + 1}</a>`).join(" ")}</div></div>` : ""}
+    ${renderPricePosition(property)}
     ${renderMortgageCalc(Number(property.price))}
     ${property.score ? `
       <div class="modal-section score-public">
@@ -1908,6 +1988,240 @@ function renderFichaPanel(property, photos, score) {
         ` : ""}
       </div>
     ` : `<p class="public-description" style="padding:22px 0">Sin análisis disponible todavía.</p>`}
+    <div class="neighborhood-card-wrap hidden">
+      <details class="neighborhood-details">
+        <summary>Contexto del barrio</summary>
+        <div id="neighborhoodCardContent"></div>
+      </details>
+    </div>
+  `;
+}
+
+// ── Neighborhood data cache (in-memory, not persisted) ──────────────────
+const neighborhoodCache = {};
+
+async function loadNeighborhoodData(neighborhood, city) {
+  if (!neighborhood) return;
+  const key = neighborhood.toLowerCase();
+  if (neighborhoodCache[key] !== undefined) {
+    applyNeighborhoodCard(neighborhoodCache[key]);
+    return;
+  }
+  neighborhoodCache[key] = null; // mark loading
+
+  try {
+    const resp = await fetch(apiUrl(`/api/neighborhoods?name=${encodeURIComponent(neighborhood)}`), { headers: authHeaders() });
+    const data = await resp.json();
+    const existing = data.neighborhoods?.[0] || null;
+    if (existing && existing.description) {
+      neighborhoodCache[key] = existing;
+      applyNeighborhoodCard(existing);
+      maybeRefreshNeighborhoodIntel(existing, neighborhood);
+      return;
+    }
+  } catch (_) {
+    // fall through to AI generation
+  }
+
+  // Generate description with AI, then save
+  try {
+    const computedAvgM2 = computeNeighborhoodAvgM2(neighborhood);
+    const result = await callOpenRouter({
+      functionType: "json",
+      messages: [
+        {
+          role: "system",
+          content: `Sos un experto inmobiliario en ${MARKET_CONFIG.country}. Devolvé SOLO JSON válido:
+{"description": "2-3 oraciones factuales sobre el barrio", "key_features": ["característica 1", "característica 2", "característica 3", "característica 4"]}
+Sin marketing vacío. Datos verificables: tipo de barrio, accesos, colegios cercanos, nivel socioeconómico.`,
+        },
+        { role: "user", content: `Describí el barrio "${neighborhood}" en ${city || MARKET_CONFIG.country}.` },
+      ],
+      temperature: 0.3,
+    });
+    if (result && result.description) {
+      const record = {
+        name: neighborhood,
+        city: city || MARKET_CONFIG.defaultCity,
+        country: MARKET_CONFIG.country,
+        avg_price_m2: computedAvgM2,
+        description: result.description,
+        key_features: result.key_features || [],
+        market_intel_sentence: null,
+        last_updated: new Date().toISOString(),
+      };
+      neighborhoodCache[key] = record;
+      applyNeighborhoodCard(record);
+      // Save to Supabase in background
+      fetch(apiUrl("/api/neighborhoods"), {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(record),
+      }).catch(() => {});
+    }
+  } catch (_) {
+    // AI failed — leave placeholder hidden
+  }
+}
+
+function computeNeighborhoodAvgM2(neighborhood) {
+  const ps = state.properties.filter((p) => p.status === "published" && p.neighborhood === neighborhood);
+  const m2s = ps.map((p) => pricePerM2(p)).filter(Boolean);
+  return m2s.length ? Math.round(m2s.reduce((s, v) => s + v, 0) / m2s.length) : null;
+}
+
+function applyNeighborhoodCard(data) {
+  const el = document.querySelector("#neighborhoodCardContent");
+  if (!el || !data) return;
+  const features = Array.isArray(data.key_features) ? data.key_features : [];
+  el.innerHTML = `
+    <div class="neighborhood-card-body">
+      <div class="neighborhood-card-header">
+        <div>
+          <strong class="neighborhood-card-name">${escapeHtml(data.name)}</strong>
+          ${data.city ? `<span class="neighborhood-card-city">${escapeHtml(data.city)}, ${escapeHtml(data.country || MARKET_CONFIG.country)}</span>` : ""}
+        </div>
+        ${data.avg_price_m2 ? `<span class="neighborhood-avg-m2">Promedio ${MARKET_CONFIG.currency} ${Number(data.avg_price_m2).toLocaleString(MARKET_CONFIG.locale)}/m²</span>` : ""}
+      </div>
+      ${features.length ? `<div class="neighborhood-features">${features.map((f) => `<span class="neighborhood-feature-pill">${escapeHtml(f)}</span>`).join("")}</div>` : ""}
+      ${data.description ? `<p class="neighborhood-description">${escapeHtml(data.description)}</p>` : ""}
+    </div>
+  `;
+  el.closest(".neighborhood-card-wrap")?.classList.remove("hidden");
+}
+
+async function maybeRefreshNeighborhoodIntel(record, neighborhood) {
+  if (!canManageProperties()) return;
+  const lastUpdated = record.last_updated ? new Date(record.last_updated) : null;
+  const staleDays = lastUpdated ? (Date.now() - lastUpdated.getTime()) / 86400000 : Infinity;
+  if (record.market_intel_sentence && staleDays < 7) {
+    applyMarketIntelSentence(record.market_intel_sentence);
+    return;
+  }
+  // Generate fresh AI market intel sentence
+  try {
+    const stats = computeNeighborhoodStats(neighborhood);
+    const result = await callOpenRouter({
+      functionType: "json",
+      messages: [
+        {
+          role: "system",
+          content: `Sos un asesor inmobiliario en ${MARKET_CONFIG.country}. Devolvé SOLO JSON: {"sentence": "1 oración de contexto de mercado para el vendedor, en español, sin marketing vacío."}`,
+        },
+        {
+          role: "user",
+          content: `Barrio: "${neighborhood}". Propiedades activas: ${stats.activeCount}. Precio promedio m²: ${stats.avgM2 ? `${MARKET_CONFIG.currency} ${stats.avgM2}` : "sin datos"}. Score promedio OD: ${stats.avgScore || "sin datos"}. Generá 1 oración de contexto de mercado útil para el vendedor sobre su posición competitiva.`,
+        },
+      ],
+      temperature: 0.4,
+    });
+    if (result?.sentence) {
+      applyMarketIntelSentence(result.sentence);
+      // Persist back to Supabase
+      fetch(apiUrl("/api/neighborhoods"), {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ ...record, market_intel_sentence: result.sentence }),
+      }).catch(() => {});
+    }
+  } catch (_) { /* fail silently */ }
+}
+
+function applyMarketIntelSentence(sentence) {
+  $$("[data-market-intel-sentence]").forEach((el) => {
+    el.textContent = sentence;
+    el.classList.remove("hidden");
+  });
+}
+
+function computeNeighborhoodStats(neighborhood) {
+  const ps = state.properties.filter((p) => p.status === "published" && p.neighborhood === neighborhood);
+  const m2s = ps.map((p) => pricePerM2(p)).filter(Boolean);
+  const scores = ps.map((p) => Number(p.score)).filter(Boolean);
+  return {
+    activeCount: ps.length,
+    avgM2: m2s.length ? Math.round(m2s.reduce((s, v) => s + v, 0) / m2s.length) : null,
+    avgScore: scores.length ? (scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(1) : null,
+  };
+}
+
+function renderComparables(property) {
+  const neighborhood = property.neighborhood;
+  const thisPrice = Number(property.price) || 0;
+  const thisBeds = Number(property.bedrooms) || 0;
+  const thisM2 = builtAreaForValue(property) || 0;
+
+  const candidates = state.properties.filter((p) => {
+    if (p.id === property.id || p.status !== "published") return false;
+    const pPrice = Number(p.price) || 0;
+    const pBeds = Number(p.bedrooms) || 0;
+    const pM2 = builtAreaForValue(p) || 0;
+    const sameNeighborhood = neighborhood && p.neighborhood === neighborhood;
+    const withinPriceRange = thisPrice && pPrice && Math.abs(pPrice - thisPrice) / thisPrice <= 0.20;
+    const withinM2 = thisM2 && pM2 && Math.abs(pM2 - thisM2) / thisM2 <= 0.25;
+    const withinBeds = Math.abs(pBeds - thisBeds) <= 1;
+    return (sameNeighborhood || withinPriceRange) && withinM2 && withinBeds;
+  }).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 3);
+
+  if (!candidates.length) return "";
+
+  return `
+    <div class="comparables-section">
+      <h3>Propiedades similares</h3>
+      <div class="comparables-grid">
+        ${candidates.map((p) => {
+          const cover = photoSrc(p.photos[0]);
+          const scoreNum = Number(p.score);
+          const scoreCls = p.score ? (scoreNum >= 7.5 ? "score-gold" : scoreNum >= 6 ? "score-amber" : "score-gray") : "";
+          return `
+            <div class="comparable-card" data-comparable-id="${escapeAttr(p.id)}" role="button" tabindex="0">
+              <div class="comparable-thumb">
+                ${cover ? `<img src="${escapeAttr(cover)}" loading="lazy" alt="">` : `<div class="comparable-no-photo"></div>`}
+              </div>
+              <div class="comparable-body">
+                <strong>${escapeHtml(p.title || "Propiedad")}</strong>
+                <span>${escapeHtml(p.neighborhood || "")}</span>
+                <strong class="comparable-price">${formatUsd(Number(p.price))}</strong>
+                ${p.score ? `<span class="card-badge-score ${scoreCls}" style="position:static;display:inline-block;margin-top:4px">${scoreNum.toFixed(1)}★</span>` : ""}
+              </div>
+              <a class="comparable-link" role="button">Ver reporte →</a>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderPricePosition(property) {
+  const neighborhood = property.neighborhood;
+  const thisPrice = Number(property.price);
+  if (!neighborhood || !thisPrice) return "";
+
+  const comparables = state.properties.filter((p) =>
+    p.id !== property.id &&
+    p.status === "published" &&
+    p.neighborhood === neighborhood &&
+    Number(p.price) > 0
+  );
+  if (comparables.length < 3) return "";
+
+  const allPrices = [...comparables.map((p) => Number(p.price)), thisPrice].sort((a, b) => a - b);
+  const rank = allPrices.lastIndexOf(thisPrice);
+  const percentile = Math.round((rank / (allPrices.length - 1)) * 100);
+  const position = percentile >= 50 ? "superior" : "inferior";
+
+  return `
+    <div class="price-position-block">
+      <div class="price-pos-labels">
+        <span>Más económico</span>
+        <span>Más caro</span>
+      </div>
+      <div class="price-pos-track">
+        <div class="price-pos-marker" style="left:${percentile}%"></div>
+      </div>
+      <p class="price-pos-caption">Esta propiedad está en el <strong>${percentile}%</strong> ${escapeHtml(position)} del mercado en ${escapeHtml(neighborhood)} · basado en ${comparables.length + 1} propiedades activas</p>
+    </div>
   `;
 }
 
@@ -2022,14 +2336,7 @@ function renderChecklistPanel(property, photos) {
   const completePct = rooms.length > 0 ? Math.round((roomsWithPhoto / rooms.length) * 100) : 0;
   const pctColor = completePct >= 80 ? "var(--green)" : completePct >= 50 ? "var(--gold)" : "var(--red)";
 
-  const infraItems = [
-    "Tablero eléctrico",
-    "Medidor de agua / pozo",
-    "Tanque de agua",
-    "Conexiones de servicios (UTE, OSE, Gas)",
-    "Planos aprobados",
-    "Fachada exterior",
-  ];
+  const infraItems = MARKET_CONFIG.infraChecklistItems;
 
   const roomRows = rooms.length ? rooms.map((room) => {
     const has = photosByRoom.has(room.id);
@@ -2322,9 +2629,7 @@ function propertyInfoRows(property) {
 function costRows(property) {
   const rows = [
     ["Gastos comunes", property.commonFees],
-    ["UTE promedio", property.uteAvg],
-    ["OSE promedio", property.oseAvg],
-    ["Antel", property.antelAvg],
+    ...MARKET_CONFIG.utilityProviders.map((u) => [u.label, property[u.field]]),
     ["Contribución anual", property.contribucionAnnual],
     ["Primaria anual", property.primariaAnnual],
     ["Seguro hogar", property.insuranceAvg],
@@ -2456,7 +2761,7 @@ function renderDocuments() {
   if (!property.documents.length) {
     const empty = emptyNode();
     empty.querySelector("strong").textContent = "Sin documentos cargados";
-    empty.querySelector("span").textContent = "Subí facturas UTE/OSE, gastos comunes, contribución u otros respaldos.";
+    empty.querySelector("span").textContent = `Subí facturas ${MARKET_CONFIG.utilityProviders.map((u) => u.name).join("/")}, gastos comunes, contribución u otros respaldos.`;
     list.appendChild(empty);
     return;
   }
@@ -2469,7 +2774,7 @@ function renderDocuments() {
         <div class="meta"><span>${escapeHtml(documentItem.type || "documento")}</span></div>
       </div>
       <select data-document-kind="${documentItem.id}">
-        ${["Factura UTE", "Factura OSE", "Factura Antel", "Gastos comunes", "Contribucion", "Primaria", "Seguro hogar", "Plano aprobado", "Otro"].map((kind) => `<option ${kind === documentItem.kind ? "selected" : ""}>${kind}</option>`).join("")}
+        ${MARKET_CONFIG.documentKinds.map((kind) => `<option ${kind === documentItem.kind ? "selected" : ""}>${kind}</option>`).join("")}
       </select>
       <button data-delete-document="${documentItem.id}">Borrar</button>
     `;
@@ -4024,14 +4329,9 @@ function normalizePropertyType(value = "") {
 
 function guessDocumentKind(name = "") {
   const value = name.toLowerCase();
-  if (value.includes("ute")) return "Factura UTE";
-  if (value.includes("ose")) return "Factura OSE";
-  if (value.includes("antel") || value.includes("internet")) return "Factura Antel";
-  if (value.includes("gasto")) return "Gastos comunes";
-  if (value.includes("contrib")) return "Contribucion";
-  if (value.includes("primaria")) return "Primaria";
-  if (value.includes("seguro")) return "Seguro hogar";
-  if (value.includes("plano")) return "Plano aprobado";
+  for (const [keyword, kind] of Object.entries(MARKET_CONFIG.utilityKeywords)) {
+    if (value.includes(keyword)) return kind;
+  }
   return "Otro";
 }
 
@@ -4046,8 +4346,7 @@ function missingFields(property) {
     ["m² cubiertos", property.builtArea],
     ["m² terreno", property.landArea],
     ["Gastos comunes", property.commonFees],
-    ["Factura UTE", verifiedDocumentTypes(property).includes("Factura UTE") || property.uteAvg],
-    ["Factura OSE", verifiedDocumentTypes(property).includes("Factura OSE") || property.oseAvg],
+    ...MARKET_CONFIG.utilityProviders.map((u) => [`Factura ${u.name}`, verifiedDocumentTypes(property).includes(u.docKind) || property[u.field]]),
     ["Documento gastos comunes", verifiedDocumentTypes(property).includes("Gastos comunes") || property.commonFees],
     ["Año de construccion", property.yearBuilt],
     ["Coordenadas", property.lat && property.lng],

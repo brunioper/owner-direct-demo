@@ -32,6 +32,19 @@ const OPENROUTER_FALLBACK_MODELS = process.env.OPENROUTER_FALLBACK_MODELS || [
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "properties";
 const SUPABASE_PROFILE_TABLE = process.env.SUPABASE_PROFILE_TABLE || "profiles";
 const SUPABASE_AI_SETTINGS_TABLE = process.env.SUPABASE_AI_SETTINGS_TABLE || "ai_settings";
+const SUPABASE_NEIGHBORHOODS_TABLE = process.env.SUPABASE_NEIGHBORHOODS_TABLE || "neighborhoods";
+// neighborhoods table DDL (run once in Supabase SQL editor):
+// CREATE TABLE IF NOT EXISTS neighborhoods (
+//   id text PRIMARY KEY,
+//   name text NOT NULL,
+//   city text,
+//   country text,
+//   avg_price_m2 numeric,
+//   description text,
+//   key_features jsonb DEFAULT '[]',
+//   market_intel_sentence text,
+//   last_updated timestamptz DEFAULT now()
+// );
 const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const AI_ROUTING_STORAGE = process.env.AI_ROUTING_STORAGE || (supabaseConfigured() ? "db" : "disk");
@@ -108,6 +121,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && parsed.pathname === "/api/properties") {
       await handleSyncProperties(req, res);
+      return;
+    }
+    if (req.method === "GET" && parsed.pathname === "/api/neighborhoods") {
+      await handleGetNeighborhoods(req, res);
+      return;
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/neighborhoods") {
+      await handleUpsertNeighborhood(req, res);
       return;
     }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
@@ -512,6 +533,52 @@ async function handleSyncProperties(req, res) {
     }
   }
   sendJson(res, 200, { configured: true, saved: true, count: rows.length });
+}
+
+async function handleGetNeighborhoods(req, res) {
+  const parsed = new URL(req.url, `http://${req.headers.host}`);
+  const name = parsed.searchParams.get("name");
+  if (!supabaseConfigured()) {
+    sendJson(res, 200, { configured: false, neighborhoods: [] });
+    return;
+  }
+  const query = name
+    ? `${SUPABASE_NEIGHBORHOODS_TABLE}?name=eq.${encodeURIComponent(name)}&limit=1`
+    : `${SUPABASE_NEIGHBORHOODS_TABLE}?order=name.asc`;
+  const response = await fetch(supabaseUrl(query), { headers: supabaseHeaders() });
+  if (!response.ok) {
+    // Table may not exist yet — return empty gracefully
+    sendJson(res, 200, { configured: true, neighborhoods: [] });
+    return;
+  }
+  const rows = await response.json();
+  sendJson(res, 200, { configured: true, neighborhoods: Array.isArray(rows) ? rows : [] });
+}
+
+async function handleUpsertNeighborhood(req, res) {
+  if (!supabaseConfigured()) {
+    sendJson(res, 200, { configured: false, saved: false });
+    return;
+  }
+  const body = await readBody(req);
+  const record = JSON.parse(body || "{}");
+  if (!record.name) {
+    sendJson(res, 400, { error: "name is required" });
+    return;
+  }
+  record.id = record.id || record.name.toLowerCase().replace(/\s+/g, "-");
+  record.last_updated = new Date().toISOString();
+  const response = await fetch(supabaseUrl(SUPABASE_NEIGHBORHOODS_TABLE), {
+    method: "POST",
+    headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates" }),
+    body: JSON.stringify([record]),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    sendJson(res, response.status, { error: text });
+    return;
+  }
+  sendJson(res, 200, { configured: true, saved: true, record });
 }
 
 function setCors(res) {
