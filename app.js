@@ -192,6 +192,8 @@ function ensurePropertyDefaults(property) {
   property.photos ??= [];
   property.videos ??= [];
   property.plans ??= [];
+  property.listingHints ??= {};
+  property.sectionHints ??= {};
 }
 
 function loadSettings() {
@@ -494,20 +496,21 @@ function propertyCompleteness(property) {
 }
 
 function listingCompleteness(property) {
-  const hasCosts = Number(property.uteAvg) > 0 || Number(property.oseAvg) > 0 || Number(property.commonFees) > 0;
-  const hasAmenities = (property.extras || []).some((e) => e.label && e.value);
-  const hasRoomDescriptions = (property.rooms || []).some((r) => r.notes && String(r.notes).trim());
+  const costFields = [property.uteAvg, property.oseAvg, property.commonFees, property.antelAvg, property.contribucionAnnual, property.insuranceAvg];
+  const hasCosts = costFields.filter((v) => Number(v) > 0).length >= 3;
+  const hasAmenities = (property.extras || []).filter((e) => e.label && e.value).length >= 5;
+  const hasRoomDescriptions = (property.rooms || []).filter((r) => r.notes && String(r.notes).trim()).length >= 3;
   const hasLegalDocs = (property.documents || []).length > 0;
   const checks = [
     { label: "Foto principal", weight: 15, done: (property.photos || []).length >= 1, icon: "📷", why: "Sin foto principal tu listing no aparece en búsquedas", tab: "media" },
     { label: "Precio USD", weight: 15, done: Number(property.price) > 0, icon: "💵", why: "El precio es el primer filtro de búsqueda del comprador", tab: "data" },
     { label: "m² cubiertos", weight: 15, done: Boolean(builtAreaForValue(property)), icon: "📐", why: "El precio por m² es la métrica clave para comparar propiedades", tab: "data" },
     { label: "Dormitorios y baños", weight: 15, done: Number(property.bedrooms) > 0 && property.bathrooms !== "" && property.bathrooms !== null, icon: "🛏", why: "El primer filtro que usan los compradores al buscar", tab: "data" },
-    { label: "Agregá 6 fotos o más", weight: 8, done: (property.photos || []).length >= 6, icon: "🖼", why: "Los listings con 10+ fotos reciben 3× más consultas", tab: "media" },
-    { label: "Costos mensuales (UTE, OSE, gastos)", weight: 8, done: hasCosts, icon: "💰", why: "Los compradores lo exigen antes de visitar", tab: "data" },
-    { label: "Amenities (parrillero, pileta, cochera…)", weight: 8, done: hasAmenities, icon: "✅", why: "Filtran a compradores calificados con ese requisito", tab: "data" },
+    { label: "Mínimo 6 fotos", weight: 8, done: (property.photos || []).length >= 6, icon: "🖼", why: "Los listings con 10+ fotos reciben 3× más consultas", tab: "media" },
+    { label: "3 o más costos mensuales", weight: 8, done: hasCosts, icon: "💰", why: "Los compradores lo exigen antes de visitar", tab: "data" },
+    { label: "5 o más amenities", weight: 8, done: hasAmenities, icon: "✅", why: "Filtran a compradores calificados con ese requisito", tab: "data" },
     { label: "Plano subido", weight: 8, done: (property.plans || []).length >= 1, icon: "🏠", why: "Aumenta los guardados en un 30%", tab: "media" },
-    { label: "Descripción por ambiente", weight: 4, done: hasRoomDescriptions, icon: "📝", why: "Los compradores comparan ambientes antes de visitar", tab: "data" },
+    { label: "3+ descripciones por ambiente", weight: 4, done: hasRoomDescriptions, icon: "📝", why: "Los compradores comparan ambientes antes de visitar", tab: "data" },
     { label: "Datos legales o documentos", weight: 4, done: hasLegalDocs, icon: "📋", why: "Genera confianza en compradores con financiamiento", tab: "data" },
     { label: "Año de construcción", weight: 4, done: Boolean(property.yearBuilt), icon: "🏗", why: "Permite comparar con el mercado por antigüedad", tab: "data" },
     { label: "Arquitecto / estudio", weight: 4, done: Boolean(property.architect && String(property.architect).trim()), icon: "🏛", why: "Las propiedades firmadas por estudios reconocidos se valorizan más", tab: "data" },
@@ -546,6 +549,7 @@ function renderAll() {
   renderCostsBanner();
   renderCompareBar();
   renderActivePropertySelectors();
+  renderFormSectionCompleteness();
 }
 
 function renderAuth() {
@@ -1305,28 +1309,74 @@ function renderSellerCompleteness() {
       <div class="completeness-header">
         <div class="completeness-title-row">
           <span class="completeness-label" style="color:${colorVar}">${escapeHtml(label)}</span>
-          <strong class="completeness-pct" style="color:${colorVar}">${score}%</strong>
+          <strong class="completeness-pct cormorant" style="color:${colorVar}">${score}%</strong>
         </div>
         <div class="completeness-track">
           <div class="completeness-fill" style="width:${score}%;background:${colorVar}"></div>
         </div>
+        <div class="completeness-threshold-row">
+          <span class="completeness-threshold-marker" style="left:90%">
+            <span class="threshold-label">90% para publicar</span>
+          </span>
+        </div>
       </div>
       ${missing.length ? `
         <div class="completeness-checklist">
-          ${missing.slice(0, 6).map((item) => `
-            <div class="completeness-item ${item.weight >= 15 ? "item-critical" : item.weight >= 8 ? "item-important" : "item-nice"}">
-              <span class="item-icon">${item.icon}</span>
-              <div class="item-body">
-                <strong>${escapeHtml(item.label)}</strong>
-                <span>${escapeHtml(item.why)}</span>
+          ${missing.slice(0, 6).map((item) => {
+            const hint = property.listingHints?.[item.label];
+            const cls = item.weight >= 15 ? "item-critical" : item.weight >= 8 ? "item-important" : "item-nice";
+            return `
+              <div class="completeness-item ${cls}">
+                <span class="item-icon">${item.icon}</span>
+                <div class="item-body">
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <span>${hint ? escapeHtml(hint) : escapeHtml(item.why)}</span>
+                </div>
+                <div class="item-actions">
+                  <span class="item-gain">+${item.weight}%</span>
+                  <button class="item-navigate-btn" data-completeness-tab="${escapeAttr(item.tab)}" type="button">Completar →</button>
+                </div>
               </div>
-              <span class="item-gain">+${item.weight}%</span>
-            </div>
-          `).join("")}
+            `;
+          }).join("")}
         </div>
       ` : `<p class="completeness-done">✓ Todos los datos recomendados están completos.</p>`}
     </div>
   `;
+
+  if (missing.length) generateListingHintsIfNeeded(property);
+}
+
+async function generateListingHintsIfNeeded(property) {
+  const { missing } = listingCompleteness(property);
+  const needHints = missing.filter((item) => !property.listingHints?.[item.label]);
+  if (!needHints.length) return;
+
+  property.listingHints ??= {};
+  try {
+    const result = await callOpenRouter({
+      functionType: "json",
+      messages: [
+        {
+          role: "system",
+          content: `Sos un consultor inmobiliario en Uruguay. Devolvé SOLO un JSON con este formato exacto: {"campo1": "razón (1 oración corta)", "campo2": "..."}. Contexto: propiedad tipo ${escapeHtml(property.type || "Casa")}, barrio ${escapeHtml(property.neighborhood || "Colinas de Carrasco")}, precio USD ${Number(property.price) || "sin definir"}. Sé directo y específico, sin marketing.`,
+        },
+        {
+          role: "user",
+          content: `Generá una razón específica (1 oración) de por qué cada campo aumenta las chances de venta: ${needHints.map((i) => i.label).join(", ")}`,
+        },
+      ],
+      temperature: 0.2,
+    });
+    if (result && typeof result === "object") {
+      Object.assign(property.listingHints, result);
+      saveState();
+      syncRemoteProperties();
+      renderSellerCompleteness();
+    }
+  } catch (_) {
+    // fail silently — default why texts remain visible
+  }
 }
 
 function renderCostsBanner() {
@@ -1334,6 +1384,66 @@ function renderCostsBanner() {
   const property = selectedProperty();
   if (!banner || !property) return;
   banner.classList.toggle("hidden", costCompleteness(property) >= 0.6);
+}
+
+const FORM_SECTIONS = {
+  identidad: {
+    fields: ["title", "type", "status"],
+    required: ["title"],
+  },
+  precio: {
+    fields: ["price", "neighborhood", "city"],
+    required: ["price", "neighborhood"],
+  },
+  ubicacion: {
+    fields: ["address", "lat", "lng", "mapUrl"],
+    required: [],
+  },
+  medidas: {
+    fields: ["bedrooms", "bathrooms", "builtArea", "landArea", "semiArea", "suites", "parking"],
+    required: ["bedrooms", "bathrooms", "builtArea"],
+  },
+  construccion: {
+    fields: ["yearBuilt", "architect", "commonFees"],
+    required: [],
+  },
+  descripcion: {
+    fields: ["description"],
+    required: [],
+  },
+};
+
+function renderFormSectionCompleteness() {
+  const property = selectedProperty();
+  if (!property || !canManageProperties()) return;
+
+  Object.entries(FORM_SECTIONS).forEach(([sectionId, { fields, required }]) => {
+    const pill = $(`#sectionPill-${sectionId}`);
+    if (!pill) return;
+    const filled = fields.filter((f) => {
+      const v = property[f];
+      return v !== undefined && v !== null && v !== "" && !(typeof v === "number" && isNaN(v));
+    }).length;
+    const pct = Math.round((filled / fields.length) * 100);
+    const requiredMissing = required.filter((f) => {
+      const v = property[f];
+      return !v || v === "";
+    }).length;
+    const color = requiredMissing > 0 ? "var(--red)" : pct >= 80 ? "var(--green)" : pct >= 40 ? "var(--warning)" : "var(--muted)";
+    pill.textContent = `${filled}/${fields.length}`;
+    pill.style.color = color;
+    pill.style.borderColor = color;
+  });
+
+  applySectionHints(property);
+}
+
+function applySectionHints(property) {
+  const hints = property.sectionHints || {};
+  Object.keys(FORM_SECTIONS).forEach((sectionId) => {
+    const el = $(`#sectionHint-${sectionId}`);
+    if (el && hints[sectionId]) el.textContent = hints[sectionId];
+  });
 }
 
 function toggleCompare(id) {
@@ -1518,7 +1628,7 @@ function renderPublishChecklist() {
         <p class="eyebrow">Revisión final</p>
         <h3>Checklist de publicación</h3>
       </div>
-      <span class="status-pill ${complete.percent >= 80 ? "" : "warn"}">${complete.percent}% completa</span>
+      <span class="status-pill ${complete.percent >= 90 ? "" : "warn"}">${complete.percent}% completa</span>
     </div>
     <div class="checklist-grid">
       ${rows.map(([label, done]) => `<div class="${done ? "done" : "pending"}"><span>${done ? "✓" : "!"}</span>${escapeHtml(label)}</div>`).join("")}
@@ -1535,7 +1645,8 @@ function renderWizardControls() {
   const previous = EDITOR_STEPS[index - 1];
   const next = EDITOR_STEPS[index + 1];
   const complete = propertyCompleteness(property);
-  const canPublish = complete.percent >= 80 || property.status === "published";
+  const canPublish = complete.percent >= 90 || property.status === "published";
+  const publishBlockedMsg = !canPublish ? `Completá al menos 90% del listing para publicar — te faltan ${90 - complete.percent}%` : "";
   el.innerHTML = `
     <div class="wizard-controls-meta">
       <strong>Paso ${index + 1} de ${EDITOR_STEPS.length}: ${escapeHtml(EDITOR_STEP_LABELS[state.editorTab] || "Carga")}</strong>
@@ -1545,7 +1656,12 @@ function renderWizardControls() {
       <button type="button" data-wizard-prev ${previous ? "" : "disabled"}>Atrás</button>
       ${next
         ? `<button type="button" class="primary" data-wizard-next>Siguiente</button>`
-        : `<button type="button" class="primary" data-wizard-publish ${canPublish ? "" : "disabled"}>${property.status === "published" ? "Publicado" : "Publicar ahora"}</button>`}
+        : canPublish
+          ? `<button type="button" class="primary" data-wizard-publish>${property.status === "published" ? "Publicado ✓" : "Publicar ahora"}</button>`
+          : `<div class="publish-blocked-wrap">
+               <button type="button" class="primary publish-blocked-btn" disabled>${property.status === "published" ? "Publicado ✓" : "Publicar ahora"}</button>
+               <span class="publish-blocked-tip">${escapeHtml(publishBlockedMsg)}</span>
+             </div>`}
     </div>
   `;
 }
@@ -1555,7 +1671,7 @@ function stepHelperText(step, property, complete) {
   if (step === "data") return complete.dataOk ? "Los datos base están completos." : `Te falta: ${complete.missing.slice(0, 3).join(", ") || "datos básicos"}.`;
   if (step === "media") return property.photos.length >= 8 ? `${property.photos.length} fotos cargadas.` : `Subí ${Math.max(0, 8 - property.photos.length)} fotos más para un análisis sólido.`;
   if (step === "analysis") return complete.analysisOk ? "Análisis listo para revisar." : "Corré el análisis IA o ajustá el score manual.";
-  return complete.percent >= 80 ? "La ficha está lista para publicar." : "Completá los pendientes antes de publicar.";
+  return complete.percent >= 90 ? "La ficha está lista para publicar." : `Completá los pendientes antes de publicar (${complete.percent}% de 90% requerido).`;
 }
 
 function goWizard(delta) {
@@ -1795,10 +1911,44 @@ function renderFichaPanel(property, photos, score) {
   `;
 }
 
+function isMejoraObject(item) {
+  return item && typeof item === "object" && item.name;
+}
+
+function mejoraRoi(item) {
+  if (!isMejoraObject(item) || !item.investLow) return 0;
+  return (item.returnLow || 0) / item.investLow;
+}
+
+function renderMejoraCard(item) {
+  if (!isMejoraObject(item)) {
+    return `<div class="mejora-item">${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</div>`;
+  }
+  const roi = item.investLow ? Math.round(mejoraRoi(item) * 100) : null;
+  return `
+    <div class="mejora-card">
+      <div class="mejora-card-head">
+        <strong class="mejora-name">${escapeHtml(item.name)}</strong>
+        <div class="mejora-badges">
+          ${item.starImpact ? `<span class="mejora-star">+${Number(item.starImpact).toFixed(1)}★</span>` : ""}
+          ${roi !== null ? `<span class="mejora-roi">ROI ~${roi}%</span>` : ""}
+        </div>
+      </div>
+      ${item.description ? `<p class="mejora-desc">${escapeHtml(item.description)}</p>` : ""}
+      <div class="mejora-meta">
+        ${item.investLow ? `<span class="mejora-invest">Inversión: USD ${Number(item.investLow).toLocaleString("es-UY")}–${Number(item.investHigh || item.investLow).toLocaleString("es-UY")}</span>` : ""}
+        ${item.returnLow ? `<span class="mejora-return">Retorno est.: USD ${Number(item.returnLow).toLocaleString("es-UY")}${item.returnHigh ? `–${Number(item.returnHigh).toLocaleString("es-UY")}` : ""}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
 function renderAmbientesPanel(property) {
   const rooms = property.rooms || [];
-  const improvements = property.analysis?.improvements || [];
+  const rawImprovements = property.analysis?.improvements || [];
   const vi = property.analysis?.value_impact;
+
+  const improvements = [...rawImprovements].sort((a, b) => mejoraRoi(b) - mejoraRoi(a));
 
   const roomCardsHtml = rooms.length ? `
     <div class="room-cards-grid">
@@ -1826,12 +1976,28 @@ function renderAmbientesPanel(property) {
     </div>
   ` : "";
 
+  const structuredMejoras = improvements.filter(isMejoraObject);
+  const totalSummary = structuredMejoras.length >= 2 ? (() => {
+    const totalInvest = structuredMejoras.reduce((s, m) => s + (m.investLow || 0), 0);
+    const totalReturn = structuredMejoras.reduce((s, m) => s + (m.returnLow || 0), 0);
+    const totalStars = structuredMejoras.reduce((s, m) => s + (Number(m.starImpact) || 0), 0);
+    return `
+      <div class="mejoras-total-summary">
+        <span>Total mejoras (${structuredMejoras.length})</span>
+        <span>Inversión ~USD ${totalInvest.toLocaleString("es-UY")}</span>
+        ${totalReturn ? `<span>Retorno est. ~USD ${totalReturn.toLocaleString("es-UY")}</span>` : ""}
+        ${totalStars ? `<span>+${totalStars.toFixed(1)}★ potencial</span>` : ""}
+      </div>
+    `;
+  })() : "";
+
   const mejoras = improvements.length ? `
     <div class="modal-section" style="margin-top:20px">
       <h3>Mejoras sugeridas</h3>
       <div class="mejoras-list">
-        ${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}
+        ${improvements.map(renderMejoraCard).join("")}
       </div>
+      ${totalSummary}
       ${viNote}
     </div>
   ` : `<p class="public-description" style="padding-top:16px;padding-bottom:4px">Sin mejoras IA sugeridas todavía.</p>`;
@@ -2100,7 +2266,7 @@ function openRoomSheet(room, property) {
     </p>
     ${room.score ? `<div style="margin-bottom:16px"><strong style="font-size:28px;color:${Number(room.score) >= 8 ? "var(--green)" : Number(room.score) >= 6.5 ? "var(--gold)" : "var(--red)"}">${Number(room.score).toFixed(1)}★</strong><span style="font-size:12px;color:var(--muted);margin-left:6px">Score OD</span></div>` : ""}
     ${room.notes ? `<p style="font-size:13px;line-height:1.6;margin-bottom:16px">${escapeHtml(room.notes)}</p>` : ""}
-    ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}</div>` : ""}
+    ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map(renderMejoraCard).join("")}</div>` : ""}
   `;
   sheet.classList.add("open");
   document.body.style.overflow = "hidden";
@@ -3069,7 +3235,27 @@ function publishProperty(id, status = "published") {
   if (status === "published") {
     showToast("Publicada");
     launchConfetti();
+    showPublishConfirmation(property);
   }
+}
+
+function showPublishConfirmation(property) {
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const buyerUrl = `${baseUrl}#marketplace`;
+  const existing = $("#publishConfirmBanner");
+  if (existing) existing.remove();
+  const banner = document.createElement("div");
+  banner.id = "publishConfirmBanner";
+  banner.className = "publish-confirm-banner";
+  banner.innerHTML = `
+    <div class="publish-confirm-inner">
+      <strong>¡${escapeHtml(property.title || "Propiedad")} está publicada!</strong>
+      <span>Los compradores pueden verla en: <a href="${escapeAttr(buyerUrl)}" target="_blank" rel="noopener">${escapeHtml(buyerUrl)}</a></span>
+      <button class="publish-confirm-close" type="button">✕</button>
+    </div>
+  `;
+  banner.querySelector(".publish-confirm-close").addEventListener("click", () => banner.remove());
+  $("#view-editor")?.prepend(banner);
 }
 
 function launchConfetti() {
@@ -4112,6 +4298,15 @@ function bindEvents() {
     }
   });
 
+  $("#sellerCompleteness")?.addEventListener("click", (event) => {
+    const tab = event.target.dataset.completenessTab;
+    if (tab) {
+      state.editorTab = tab;
+      saveState();
+      renderAll();
+    }
+  });
+
   $("#propertyForm").addEventListener("submit", (event) => {
     event.preventDefault();
     savePropertyForm();
@@ -4419,7 +4614,7 @@ function bindEvents() {
             ${room.score ? `<strong style="font-size:28px;color:var(--green)">${Number(room.score).toFixed(1)}★</strong>` : ""}
           </div>
           ${room.notes ? `<p style="font-size:13px;line-height:1.6;margin-bottom:14px">${escapeHtml(room.notes)}</p>` : ""}
-          ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map((item) => `<div class="mejora-item">${escapeHtml(item)}</div>`).join("")}</div>` : ""}
+          ${improvements.length ? `<h4 style="font-size:13px;margin-bottom:8px">Mejoras sugeridas</h4><div class="mejoras-list">${improvements.map(renderMejoraCard).join("")}</div>` : ""}
         `;
         inline.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }

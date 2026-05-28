@@ -244,46 +244,130 @@
               <button type="submit" class="primary">Guardar ficha</button>
               </div>
 
-              <div class="form-grid">
-              <label>Título comercial<input name="title" required /></label>
-              <label>Tipo
-                <select name="type">
-                  <option>Casa</option>
-                  <option>Apartamento</option>
-                  <option>Terreno</option>
-                  <option>Chacra</option>
-                  <option>Local</option>
-                </select>
-              </label>
-              <label>Estado
-                <select name="status">
-                  <option value="draft">Borrador</option>
-                  <option value="review">En revisión</option>
-                  <option value="published">Publicada</option>
-                </select>
-              </label>
-              <label>Precio USD<input name="price" type="number" min="0" /></label>
-              <label>Barrio<input name="neighborhood" /></label>
-              <label>Ciudad<input name="city" /></label>
-              <label>Dirección<input name="address" /></label>
-              <label>Coordenadas lat<input name="lat" type="number" step="0.0001" /></label>
-              <label>Coordenadas lng<input name="lng" type="number" step="0.0001" /></label>
-              <label>URL mapa / Google Maps<input name="mapUrl" type="url" placeholder="https://maps.google.com/..." /></label>
-              <label>Dormitorios<input name="bedrooms" type="number" min="0" /></label>
-              <label>Baños<input name="bathrooms" type="number" min="0" step="0.5" /></label>
-              <label>Suites<input name="suites" type="number" min="0" /></label>
-              <label>Cocheras<input name="parking" type="number" min="0" /></label>
-              <label>m² terreno<input name="landArea" type="number" min="0" /></label>
-              <label>m² cubiertos<input name="builtArea" type="number" min="0" /></label>
-              <label>m² semicubiertos<input name="semiArea" type="number" min="0" /></label>
-              <label>Año construcción<input name="yearBuilt" type="number" min="1800" /></label>
-              <label>Arquitecto / estudio<input name="architect" /></label>
-              <label>Gastos comunes USD<input name="commonFees" type="number" min="0" /></label>
-            </div>
+              <div class="form-section" data-form-section="identidad">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Identificación</h4>
+                    <span class="form-section-pill" id="sectionPill-identidad"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-identidad">El título y tipo son los primeros datos que procesa el comprador. Un título descriptivo mejora el posicionamiento en búsqueda.</p>
+                  </details>
+                </div>
+                <div class="form-grid">
+                  <label>Título comercial<input name="title" required /></label>
+                  <label>Tipo
+                    <select name="type">
+                      <option>Casa</option>
+                      <option>Apartamento</option>
+                      <option>Terreno</option>
+                      <option>Chacra</option>
+                      <option>Local</option>
+                    </select>
+                  </label>
+                  <label>Estado
+                    <select name="status">
+                      <option value="draft">Borrador</option>
+                      <option value="review">En revisión</option>
+                      <option value="published">Publicada</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
 
-            <label class="wide">Descripción
-              <textarea name="description" rows="4"></textarea>
-            </label>
+              <div class="form-section" data-form-section="precio">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Precio y barrio <span class="section-critical-badge">Crítico</span></h4>
+                    <span class="form-section-pill" id="sectionPill-precio"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-precio">El precio en USD y el barrio son los dos filtros que todo comprador aplica primero. Sin ellos la propiedad no aparece en búsquedas relevantes.</p>
+                  </details>
+                </div>
+                <div class="form-grid">
+                  <label>Precio USD<input name="price" type="number" min="0" /></label>
+                  <label>Barrio<input name="neighborhood" /></label>
+                  <label>Ciudad<input name="city" /></label>
+                </div>
+              </div>
+
+              <div class="form-section" data-form-section="ubicacion">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Ubicación</h4>
+                    <span class="form-section-pill" id="sectionPill-ubicacion"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-ubicacion">La dirección y coordenadas permiten mostrar el mapa y calcular distancias a colegios, centros comerciales y accesos viales.</p>
+                  </details>
+                </div>
+                <div class="form-grid">
+                  <label>Dirección<input name="address" /></label>
+                  <label>Coordenadas lat<input name="lat" type="number" step="0.0001" /></label>
+                  <label>Coordenadas lng<input name="lng" type="number" step="0.0001" /></label>
+                  <label>URL mapa / Google Maps<input name="mapUrl" type="url" placeholder="https://maps.google.com/..." /></label>
+                </div>
+              </div>
+
+              <div class="form-section" data-form-section="medidas">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Medidas y ambientes <span class="section-critical-badge">Crítico</span></h4>
+                    <span class="form-section-pill" id="sectionPill-medidas"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-medidas">Los m² cubiertos y dormitorios son los campos más filtrados por compradores. El precio por m² es la métrica de comparación clave en Colinas.</p>
+                  </details>
+                </div>
+                <div class="form-grid">
+                  <label>Dormitorios<input name="bedrooms" type="number" min="0" /></label>
+                  <label>Baños<input name="bathrooms" type="number" min="0" step="0.5" /></label>
+                  <label>Suites<input name="suites" type="number" min="0" /></label>
+                  <label>Cocheras<input name="parking" type="number" min="0" /></label>
+                  <label>m² terreno<input name="landArea" type="number" min="0" /></label>
+                  <label>m² cubiertos<input name="builtArea" type="number" min="0" /></label>
+                  <label>m² semicubiertos<input name="semiArea" type="number" min="0" /></label>
+                </div>
+              </div>
+
+              <div class="form-section" data-form-section="construccion">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Construcción</h4>
+                    <span class="form-section-pill" id="sectionPill-construccion"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-construccion">El año de construcción y el arquitecto son señales de calidad que segmentan compradores. Las propiedades firmadas por estudios reconocidos se valorizan más en este barrio.</p>
+                  </details>
+                </div>
+                <div class="form-grid">
+                  <label>Año construcción<input name="yearBuilt" type="number" min="1800" /></label>
+                  <label>Arquitecto / estudio<input name="architect" /></label>
+                  <label>Gastos comunes USD<input name="commonFees" type="number" min="0" /></label>
+                </div>
+              </div>
+
+              <div class="form-section" data-form-section="descripcion">
+                <div class="form-section-head">
+                  <div class="form-section-title-row">
+                    <h4>Descripción</h4>
+                    <span class="form-section-pill" id="sectionPill-descripcion"></span>
+                  </div>
+                  <details class="form-section-hint">
+                    <summary>Por qué importa</summary>
+                    <p class="section-hint-text" id="sectionHint-descripcion">Una descripción técnica y honesta diferencia al vendedor. Evitá superlativos; describí materiales, orientación y características verificables.</p>
+                  </details>
+                </div>
+                <label class="wide">
+                  <textarea name="description" rows="4"></textarea>
+                </label>
+              </div>
             </form>
           </div>
 
