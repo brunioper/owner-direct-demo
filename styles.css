@@ -1885,9 +1885,15 @@ body[data-view="marketplace"] .view-switch button.active {
 }
 
 body[data-view="marketplace"] .property-grid.compact {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   align-items: start;
-  gap: 34px;
+  gap: 20px;
+}
+
+@media (min-width: 1200px) {
+  body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 body[data-view="marketplace"] .property-card {
@@ -3879,12 +3885,12 @@ body[data-view="marketplace"] .property-grid.compact {
 
 /* Staggered card fade-up */
 @keyframes cardFadeUp {
-  from { opacity: 0; transform: translateY(18px); }
+  from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 body[data-view="marketplace"] .property-card.animate-in {
-  animation: cardFadeUp 0.5s ease both;
+  animation: cardFadeUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3902,22 +3908,24 @@ body[data-view="marketplace"] .property-card.animate-in {
 }
 
 .suggestion-chip {
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: rgba(244, 241, 234, 0.85);
+  font-size: 12px;
+  font-weight: 400;
+  background: rgba(212, 175, 55, 0.06);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  color: rgba(244, 241, 234, 0.68);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
   white-space: nowrap;
-  line-height: 1.3;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 
 .suggestion-chip:hover {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(212, 175, 55, 0.12);
+  border-color: rgba(212, 175, 55, 0.38);
+  color: rgba(244, 241, 234, 0.95);
 }
 
 /* Neighborhood context line */
@@ -5045,4 +5053,223 @@ body[data-view="marketplace"] .results-toolbar h3 {
   font-weight: 400;
   font-size: clamp(24px, 2.8vw, 32px);
   letter-spacing: -0.02em;
+}
+
+/* ── Card depth & cinematic photo overlay ─────────────────────────── */
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card:hover,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* Cinematic gradient over photo bottom edge */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.15) 0%,
+    transparent 40%,
+    rgba(8, 14, 26, 0.55) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-badge-status,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-badge-score {
+  z-index: 2;
+}
+
+/* ── Card info hierarchy: price first, title secondary ───────────── */
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body {
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-neighborhood {
+  order: 1;
+  color: rgba(212, 175, 55, 0.6);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  margin-bottom: 4px;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .public-price {
+  order: 2;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(24px, 2.4vw, 30px);
+  color: #D4AF37;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 0 0 4px;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body h3 {
+  order: 3;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(244, 241, 234, 0.6);
+  margin: 0 0 10px;
+  letter-spacing: 0;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-usd-m2 {
+  order: 4;
+  display: none;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row {
+  order: 5;
+  display: flex;
+  gap: 0;
+  flex-wrap: nowrap;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span {
+  background: transparent;
+  color: rgba(244, 241, 234, 0.55);
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span + span::before {
+  content: "  ·  ";
+  color: rgba(255, 255, 255, 0.25);
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-footer-row {
+  order: 6;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Photo pill muted tones ──────────────────────────────────────── */
+
+.photo-pill-green { background: rgba(76, 175, 125, 0.12); color: rgba(76, 175, 125, 0.85); }
+.photo-pill-amber { background: rgba(232, 160, 32, 0.12); color: rgba(232, 160, 32, 0.85); }
+.photo-pill-red   { background: rgba(224, 90, 90, 0.12);  color: rgba(224, 90, 90, 0.85); }
+
+/* ── Mode toggle gold in marketplace ─────────────────────────────── */
+
+body[data-view="marketplace"] .mode-toggle {
+  background: rgba(13, 27, 42, 0.9);
+  border-color: rgba(212, 175, 55, 0.15);
+}
+
+body[data-view="marketplace"] .mode-toggle button {
+  color: rgba(244, 241, 234, 0.5);
+}
+
+body[data-view="marketplace"] .mode-toggle button.active {
+  background: rgba(212, 175, 55, 0.16);
+  color: #D4AF37;
+  border: none;
+}
+
+body[data-view="marketplace"] .mode-toggle span {
+  background: rgba(212, 175, 55, 0.2);
+  color: #D4AF37;
+}
+
+/* ── AI search thumb gold border ─────────────────────────────────── */
+
+.ai-search-thumb {
+  border: 2px solid rgba(212, 175, 55, 0.5);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12);
+}
+
+/* ── Clear search ghost button ───────────────────────────────────── */
+
+body[data-view="marketplace"] #clearAiSearchBtn {
+  color: rgba(244, 241, 234, 0.45);
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 400;
+  min-height: 0;
+  padding: 4px 8px;
+}
+
+body[data-view="marketplace"] #clearAiSearchBtn:hover {
+  color: rgba(244, 241, 234, 0.85);
+  background: transparent;
+}
+
+/* ── Search input typography ─────────────────────────────────────── */
+
+body[data-view="marketplace"] .ai-search-box input {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(18px, 2vw, 24px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+}
+
+body[data-view="marketplace"] .ai-search-box input::placeholder {
+  color: rgba(244, 241, 234, 0.38);
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(14px, 1.4vw, 16px);
+  font-weight: 300;
+  letter-spacing: 0;
+}
+
+/* ── Hero section spaciousness ───────────────────────────────────── */
+
+body[data-view="marketplace"] .panel-head {
+  padding-bottom: 32px;
+}
+
+body[data-view="marketplace"] .panel-head h2 {
+  letter-spacing: -0.055em;
+  line-height: 0.92;
+}
+
+/* ── List view: vertical separator between photo and body ─────────── */
+
+body[data-view="marketplace"] .property-grid.compact.list-mode .property-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 27, 42, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+body[data-view="marketplace"] .property-grid.compact.list-mode .property-card:hover {
+  border-color: rgba(212, 175, 55, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 36px rgba(0, 0, 0, 0.5);
+  transform: none;
+}
+
+body[data-view="marketplace"] .property-grid.compact.list-mode .list-card .property-body h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+  color: rgba(244, 241, 234, 0.88);
+}
+
+body[data-view="marketplace"] .property-grid.compact.list-mode .list-card .public-price {
+  font-size: clamp(22px, 2vw, 28px);
+  color: #D4AF37;
 }

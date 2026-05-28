@@ -1187,6 +1187,17 @@ function renderMarketplace() {
 
   renderMarketContextBar(properties);
 
+  // Update results count in toolbar
+  const toolbarH3 = $("#view-marketplace .results-toolbar h3");
+  if (toolbarH3 && initialLoadComplete) {
+    const count = properties.length;
+    toolbarH3.textContent = count === 0
+      ? "Sin resultados"
+      : count === 1
+      ? "1 propiedad encontrada"
+      : `${count} propiedades encontradas`;
+  }
+
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
   grid.classList.toggle("list-mode", state.clientView === "list");
   grid.innerHTML = "";
