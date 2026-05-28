@@ -463,8 +463,11 @@ async function handleGetProperties(req, res) {
     sendJson(res, 200, { configured: false, properties: [] });
     return;
   }
+  const parsed = new URL(req.url, `http://${req.headers.host}`);
+  const rangeParam = parsed.searchParams.get("range");
+  const extraHeaders = rangeParam ? { Range: rangeParam, "Range-Unit": "items", Prefer: "count=none" } : {};
   const response = await fetch(supabaseUrl(`${SUPABASE_TABLE}?select=id,payload,updated_at&order=updated_at.desc`), {
-    headers: supabaseHeaders(),
+    headers: supabaseHeaders(extraHeaders),
   });
   if (!response.ok) {
     sendJson(res, response.status, { error: await response.text() });
@@ -514,12 +517,15 @@ async function handleSyncProperties(req, res) {
   }
   const existing = await existingResponse.json();
   const nextIds = new Set(rows.map((row) => row.id));
-  await Promise.all(existing
+  const toDelete = existing
     .filter((row) => !nextIds.has(row.id) && (user.role === "admin" || canSeeProperty(user, row.payload || {})))
-    .map((row) => fetch(supabaseUrl(`${SUPABASE_TABLE}?id=eq.${encodeURIComponent(row.id)}`), {
+    .map((row) => row.id);
+  if (toDelete.length) {
+    await fetch(supabaseUrl(`${SUPABASE_TABLE}?id=in.(${toDelete.join(",")})`), {
       method: "DELETE",
       headers: supabaseHeaders(),
-    })));
+    });
+  }
 
   if (rows.length) {
     const upsertResponse = await fetch(supabaseUrl(SUPABASE_TABLE), {

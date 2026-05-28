@@ -64,6 +64,7 @@ const defaultState = {
   editorMode: "edit",
   draftProperty: null,
   clientView: "grid",
+  clientPage: 0,
   searchMode: "ai",
   recentSearches: [],
   favoriteIds: [],
@@ -156,6 +157,7 @@ function loadState() {
 function migrateState(nextState) {
   nextState.properties = nextState.properties || [];
   nextState.clientView ||= "grid";
+  nextState.clientPage ??= 0;
   nextState.searchMode ||= "ai";
   nextState.recentSearches ??= [];
   nextState.favoriteIds ??= [];
@@ -843,10 +845,21 @@ async function loadRemoteProperties() {
     }
   } catch (error) {
     console.warn("No se pudo cargar Supabase", error);
+    if (state.properties.length) showStaleDataPill();
   } finally {
     loadingRemote = false;
     initialLoadComplete = true;
   }
+}
+
+function showStaleDataPill() {
+  if ($("#staleDataPill")) return;
+  const pill = document.createElement("div");
+  pill.id = "staleDataPill";
+  pill.className = "stale-data-pill";
+  pill.innerHTML = "Datos desactualizados — no se pudo conectar al servidor. <button aria-label=\"Cerrar\">×</button>";
+  pill.querySelector("button").addEventListener("click", () => pill.remove());
+  document.body.appendChild(pill);
 }
 
 function scheduleRemoteSave() {
@@ -854,6 +867,20 @@ function scheduleRemoteSave() {
   clearTimeout(remoteSaveTimer);
   remoteSaveTimer = setTimeout(syncRemoteProperties, 650);
 }
+
+window.addEventListener("offline", () => {
+  if ($("#offlineBanner")) return;
+  const banner = document.createElement("div");
+  banner.id = "offlineBanner";
+  banner.className = "offline-banner";
+  banner.textContent = "Sin conexión — los cambios se guardarán cuando recuperes internet.";
+  document.body.appendChild(banner);
+});
+
+window.addEventListener("online", () => {
+  $("#offlineBanner")?.remove();
+  loadRemoteProperties();
+});
 
 async function syncRemoteProperties() {
   if (!serverConfig.supabaseConfigured || !canManageProperties()) return;
@@ -990,7 +1017,22 @@ function renderProperties() {
 
   grid.innerHTML = "";
   if (!properties.length) {
-    grid.appendChild(emptyNode());
+    const emptyEl = emptyNode();
+    if (backofficeProperties().length === 0) {
+      emptyEl.querySelector("strong").textContent = "Todavía no tenés propiedades publicadas.";
+      emptyEl.querySelector("span").textContent = "Creá tu primer listing para empezar.";
+      const cta = document.createElement("button");
+      cta.className = "primary empty-first-cta";
+      cta.textContent = "Crear mi primer listing →";
+      cta.addEventListener("click", () => {
+        state.editorMode = "new";
+        state.draftProperty = null;
+        saveState();
+        setView("editor");
+      });
+      emptyEl.appendChild(cta);
+    }
+    grid.appendChild(emptyEl);
     return;
   }
 
@@ -1139,6 +1181,7 @@ function renderMarketplace() {
   $("#view-marketplace .client-layout")?.classList.toggle("map-mode", state.clientView === "map");
   grid.classList.toggle("list-mode", state.clientView === "list");
   grid.innerHTML = "";
+  $("#loadMoreBtn")?.remove();
 
   if (!initialLoadComplete) {
     for (let i = 0; i < 6; i++) grid.appendChild(skeletonCard());
@@ -1162,7 +1205,11 @@ function renderMarketplace() {
     return;
   }
 
-  properties.forEach((property, index) => {
+  const PAGE_SIZE = 12;
+  const visibleCount = ((state.clientPage || 0) + 1) * PAGE_SIZE;
+  const visibleProperties = properties.slice(0, visibleCount);
+
+  visibleProperties.forEach((property, index) => {
     const card = document.createElement("article");
     const isListMode = state.clientView === "list";
     card.className = `property-card public-card${isListMode ? " list-card" : " animate-in"}`;
@@ -1205,6 +1252,17 @@ function renderMarketplace() {
         </div>
       </div>
     `;
+    const img = card.querySelector(".property-media img");
+    if (img) {
+      const initials = (property.title || "P").trim()[0].toUpperCase();
+      img.addEventListener("error", () => {
+        img.style.display = "none";
+        const fallback = document.createElement("div");
+        fallback.className = "photo-fallback";
+        fallback.textContent = initials;
+        img.parentNode.insertBefore(fallback, img);
+      });
+    }
     card.addEventListener("click", (e) => {
       if (e.target.closest(".compare-toggle")) return;
       openPropertyModal(property.id);
@@ -1214,6 +1272,19 @@ function renderMarketplace() {
     });
     grid.appendChild(card);
   });
+
+  if (properties.length > visibleCount) {
+    const moreBtn = document.createElement("button");
+    moreBtn.id = "loadMoreBtn";
+    moreBtn.className = "load-more-btn";
+    moreBtn.textContent = `Cargar más — ${properties.length - visibleCount} propiedades más`;
+    moreBtn.addEventListener("click", () => {
+      state.clientPage = (state.clientPage || 0) + 1;
+      renderMarketplace();
+    });
+    grid.insertAdjacentElement("afterend", moreBtn);
+  }
+
   renderLeafletMap(properties);
 
   if (!properties.some((property) => property.id === state.selectedId)) {
@@ -1863,6 +1934,7 @@ function openPropertyModal(id) {
   state.selectedId = id;
   saveState();
   renderPropertyModal();
+  history.pushState({ od: "modal", id }, "", "#ficha");
   $("#propertyModal").showModal();
 }
 
@@ -2577,6 +2649,7 @@ function openRoomSheet(room, property) {
   `;
   sheet.classList.add("open");
   document.body.style.overflow = "hidden";
+  history.pushState({ od: "roomSheet" }, "", location.href);
 }
 
 function closeRoomSheet() {
@@ -4010,6 +4083,7 @@ async function runAiPropertySearch() {
     const validIds = new Set(source.map((p) => p.id));
     state.aiSearchIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
     state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
+    state.clientPage = 0;
     saveState();
     renderMarketplace();
   } catch (error) {
@@ -4050,6 +4124,7 @@ function nextFrameDelay() {
 function clearAiSearch() {
   state.aiSearchIds = null;
   state.aiSearchExplanation = "";
+  state.clientPage = 0;
   aiSearchImageDataUrl = "";
   $("#aiSearchInput").value = "";
   $("#aiSearchImageInput").value = "";
@@ -4451,8 +4526,8 @@ function bindEvents() {
   });
   ["#clientSearchInput", "#clientTypeFilter", "#clientMaxPriceInput", "#clientBedroomsFilter"].forEach((selector) => {
     const element = $(selector);
-    if (element) element.addEventListener("input", renderMarketplace);
-    if (element) element.addEventListener("change", renderMarketplace);
+    if (element) element.addEventListener("input", () => { state.clientPage = 0; renderMarketplace(); });
+    if (element) element.addEventListener("change", () => { state.clientPage = 0; renderMarketplace(); });
   });
   $("#aiSearchBtn").addEventListener("click", runAiPropertySearch);
   $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
@@ -4878,6 +4953,19 @@ function bindEvents() {
     $("#propertyModal").close();
     closeRoomSheet();
     history.replaceState(null, "", location.pathname);
+  });
+
+  window.addEventListener("popstate", (event) => {
+    const sheet = $("#roomSheet");
+    if (sheet?.classList.contains("open")) {
+      closeRoomSheet();
+      return;
+    }
+    if ($("#propertyModal")?.open) {
+      $("#propertyModal").close();
+      closeRoomSheet();
+      history.replaceState(null, "", location.pathname);
+    }
   });
   $("#propertyModalContent").addEventListener("click", (event) => {
     const tabBtn = event.target.closest("[data-modal-tab]");
