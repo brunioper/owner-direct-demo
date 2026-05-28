@@ -450,6 +450,14 @@ function pricePerM2Label(property) {
   return value ? `USD ${value.toLocaleString("es-UY")} / m² edificado (${built.toLocaleString("es-UY")} m²)` : "USD/m² pendiente";
 }
 
+function formatPropertyTitle(title) {
+  if (!title) return "Propiedad";
+  let t = String(title).replace(/^\s*(venta|alquiler|vendo|arriendo)\s+/i, "").trim();
+  t = t.replace(/\b\w/g, (c) => c.toUpperCase());
+  if (t.length > 60) t = t.slice(0, 57) + "…";
+  return t || "Propiedad";
+}
+
 function scoreDial(score, size = "mini") {
   const value = Number(score || 0);
   if (!value) return "";
@@ -457,11 +465,12 @@ function scoreDial(score, size = "mini") {
   const stroke = size === "large" ? 7 : 4;
   const box = (radius + stroke) * 2;
   const dash = Math.max(0, Math.min(1, value / 10));
+  const color = value >= 7.5 ? "#D4AF37" : value >= 6 ? "#E8A020" : "#E05A5A";
   return `
     <span class="score-dial ${size}" title="Score OD: ${value.toFixed(1)} sobre 10">
       <svg viewBox="0 0 ${box} ${box}" aria-hidden="true">
         <circle class="track" cx="${box / 2}" cy="${box / 2}" r="${radius}"></circle>
-        <circle class="value" cx="${box / 2}" cy="${box / 2}" r="${radius}" pathLength="1" style="stroke-dasharray:${dash} 1"></circle>
+        <circle class="value" cx="${box / 2}" cy="${box / 2}" r="${radius}" pathLength="1" style="stroke-dasharray:${dash} 1;stroke:${color}"></circle>
       </svg>
       <strong>${value.toFixed(1)}</strong>
     </span>
@@ -1217,24 +1226,24 @@ function renderMarketplace() {
 
     const cover = photoSrc(property.photos[0]);
     const scoreNum = Number(property.score);
-    const scoreCls = property.score
-      ? (scoreNum >= 7.5 ? "score-gold" : scoreNum >= 6 ? "score-amber" : "score-gray")
-      : "";
+    const showScoreBadge = property.score && scoreNum >= 6;
+    const scoreCls = scoreNum >= 7.5 ? "score-gold" : "score-amber";
     const statusLabel = { published: "En venta", reserved: "Reservado", sold: "Vendido" }[property.status] || "En venta";
     const statusCls = { published: "status-venta", reserved: "status-reservado", sold: "status-vendido" }[property.status] || "status-venta";
     const photos = property.photos.filter(photoSrc);
     const photoPct = Math.min(100, Math.round(photos.length / 10 * 100));
     const pillCls = photoPct > 80 ? "photo-pill-green" : photoPct >= 50 ? "photo-pill-amber" : "photo-pill-red";
+    const formattedTitle = formatPropertyTitle(property.title);
 
     card.innerHTML = `
       <div class="property-media">
-        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(property.title || "Propiedad")}">` : ""}
+        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(formattedTitle)}">` : ""}
         <span class="card-badge-status ${statusCls}">${escapeHtml(statusLabel)}</span>
-        ${property.score ? `<span class="card-badge-score ${scoreCls}">${scoreNum.toFixed(1)}★</span>` : ""}
+        ${showScoreBadge ? `<span class="card-badge-score ${scoreCls}">${scoreNum.toFixed(1)}★</span>` : ""}
       </div>
       <div class="property-body">
-        <h3>${escapeHtml(property.title || "Propiedad sin titulo")}</h3>
-        <p class="card-neighborhood">${escapeHtml(property.neighborhood || "")}, ${escapeHtml(property.city || "Uruguay")}</p>
+        <p class="card-neighborhood">${escapeHtml((property.neighborhood || "").toUpperCase())}</p>
+        <h3>${escapeHtml(formattedTitle)}</h3>
         <strong class="public-price">${formatUsd(Number(property.price))}</strong>
         <p class="card-usd-m2">${pricePerM2Label(property)}</p>
         <div class="card-stats-row">
@@ -1861,7 +1870,7 @@ function renderLeafletMap(properties) {
     const marker = L.marker(latLng).addTo(leafletMarkerLayer);
     marker.bindPopup(`
       <div class="map-popup">
-        <strong>${escapeHtml(property.title || "Propiedad")}</strong>
+        <strong>${escapeHtml(formatPropertyTitle(property.title))}</strong>
         <div>${escapeHtml(property.neighborhood || property.city || "Montevideo")}</div>
         <div>${formatUsd(Number(property.price))}</div>
         <button onclick="window.selectClientPropertyFromMap('${property.id}')">Ver propiedad</button>
@@ -1943,8 +1952,17 @@ function renderPropertyModal() {
   const content = $("#propertyModalContent");
   if (!property || !content) return;
 
-  const MODAL_TABS = ["ficha", "ambientes", "checklist", "datos", "costos"];
-  const TAB_LABELS = { ficha: "Ficha", ambientes: "Ambientes", checklist: "Checklist", datos: "Datos", costos: "Costos" };
+  const isOwnerView = canManageProperties() || propertyOwnedByCurrentUser(property);
+  const MODAL_TABS = isOwnerView
+    ? ["ficha", "ambientes", "checklist", "datos", "costos"]
+    : ["ficha", "ambientes", "costos"];
+  const TAB_LABELS = {
+    ficha: isOwnerView ? "Ficha" : "Propiedad",
+    ambientes: "Ambientes",
+    checklist: "Checklist",
+    datos: "Datos",
+    costos: "Costos",
+  };
   const hashTab = location.hash.slice(1);
   const initialTab = MODAL_TABS.includes(hashTab) ? hashTab : "ficha";
 
@@ -1962,13 +1980,14 @@ function renderPropertyModal() {
     ["Primaria", Number(property.primariaAnnual || 0)],
   ].filter(([, v]) => v);
 
-  $("#modalTitle").textContent = property.title || "Propiedad";
+  const formattedModalTitle = formatPropertyTitle(property.title);
+  $("#modalTitle").textContent = formattedModalTitle;
 
   content.innerHTML = `
     <div class="modal-sticky-summary">
       <div>
         <h2>
-          ${escapeHtml(property.title || "Propiedad sin titulo")}
+          ${escapeHtml(formattedModalTitle)}
           ${hasVerifiedLegalDocs(property) ? `<span class="verified-docs-badge">✓ Documentación verificada</span>` : ""}
         </h2>
         <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}, ${escapeHtml(property.city || "Uruguay")}</span>
@@ -2028,8 +2047,7 @@ function renderFichaPanel(property, photos, score) {
       ${photos.length ? photos.slice(0, 12).map((photo, i) => {
         const room = roomsById.get(photo.roomId);
         return `<figure class="${i === 0 ? "featured" : ""}">
-          <img src="${photoSrc(photo)}" alt="${escapeAttr(room?.name || property.title || "Foto")}">
-          <figcaption>${escapeHtml(room?.name || photo.name || "Foto de propiedad")}</figcaption>
+          <img src="${photoSrc(photo)}" alt="${escapeAttr(room?.name || formattedModalTitle || "Foto")}">
         </figure>`;
       }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
     </div>
