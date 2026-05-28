@@ -70,6 +70,7 @@ const defaultState = {
   editorTab: "data",
   aiSearchIds: null,
   aiSearchExplanation: "",
+  compareIds: [],
   chatMessages: [
     {
       role: "assistant",
@@ -161,6 +162,7 @@ function migrateState(nextState) {
   nextState.editorTab ||= "data";
   nextState.aiSearchIds ??= null;
   nextState.aiSearchExplanation ??= "";
+  nextState.compareIds ??= [];
   nextState.editorMode ||= "edit";
   if (nextState.draftProperty) ensurePropertyDefaults(nextState.draftProperty);
   nextState.properties.forEach((property) => ensurePropertyDefaults(property));
@@ -542,6 +544,7 @@ function renderAll() {
   renderWizardControls();
   renderSellerCompleteness();
   renderCostsBanner();
+  renderCompareBar();
   renderActivePropertySelectors();
 }
 
@@ -1122,10 +1125,20 @@ function renderMarketplace() {
         </div>
         <div class="card-footer-row">
           <span class="photo-pill ${pillCls}">${photoPct}% fotos</span>
+          <label class="compare-toggle ${state.compareIds.includes(property.id) ? "checked" : ""}">
+            <input type="checkbox" data-compare-id="${escapeAttr(property.id)}" ${state.compareIds.includes(property.id) ? "checked" : ""}>
+            Comparar
+          </label>
         </div>
       </div>
     `;
-    card.addEventListener("click", () => openPropertyModal(property.id));
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".compare-toggle")) return;
+      openPropertyModal(property.id);
+    });
+    card.addEventListener("change", (e) => {
+      if (e.target.dataset.compareId) toggleCompare(e.target.dataset.compareId);
+    });
     grid.appendChild(card);
   });
   renderLeafletMap(properties);
@@ -1321,6 +1334,170 @@ function renderCostsBanner() {
   const property = selectedProperty();
   if (!banner || !property) return;
   banner.classList.toggle("hidden", costCompleteness(property) >= 0.6);
+}
+
+function toggleCompare(id) {
+  if (state.compareIds.includes(id)) {
+    state.compareIds = state.compareIds.filter((cid) => cid !== id);
+  } else if (state.compareIds.length < 3) {
+    state.compareIds = [...state.compareIds, id];
+  }
+  saveState();
+  renderCompareBar();
+  renderMarketplace();
+}
+
+function renderCompareBar() {
+  const bar = $("#compareBar");
+  if (!bar) return;
+  const count = state.compareIds.length;
+  bar.classList.toggle("hidden", count < 2);
+  if (count < 2) return;
+  bar.innerHTML = `
+    <span class="compare-bar-label">Comparando <strong>${count}</strong> ${count === 1 ? "propiedad" : "propiedades"}</span>
+    <button class="primary" id="openCompareBtn">Ver comparación →</button>
+    <button class="compare-bar-clear" id="clearCompareBtn" title="Borrar selección">✕</button>
+  `;
+}
+
+function openCompareView() {
+  const dialog = $("#compareDialog");
+  if (!dialog) return;
+  const properties = state.properties.filter((p) => state.compareIds.includes(p.id));
+  if (properties.length < 2) return;
+  dialog.innerHTML = `
+    <div class="compare-dialog-card">
+      <div class="compare-dialog-head">
+        <h2>Comparar propiedades</h2>
+        <button id="closeCompareBtn">Cerrar</button>
+      </div>
+      ${renderCompareTable(properties)}
+    </div>
+  `;
+  dialog.showModal();
+}
+
+function renderCompareTable(properties) {
+  const allExtraLabels = new Set();
+  properties.forEach((p) => (p.extras || []).filter((e) => e.label && e.value).forEach((e) => allExtraLabels.add(e.label)));
+  const amenityLabels = [...allExtraLabels].slice(0, 8);
+
+  const rows = [
+    {
+      label: "Precio",
+      values: properties.map((p) => Number(p.price) || 0),
+      fmt: (v) => v ? formatUsd(v) : "—",
+      bestMin: true,
+    },
+    {
+      label: "USD / m²",
+      values: properties.map((p) => pricePerM2(p) || 0),
+      fmt: (v) => v ? `USD ${v.toLocaleString("es-UY")}` : "—",
+      bestMin: true,
+    },
+    {
+      label: "m² cubiertos",
+      values: properties.map((p) => builtAreaForValue(p) || 0),
+      fmt: (v) => v ? `${v} m²` : "—",
+      bestMin: false,
+    },
+    {
+      label: "m² terreno",
+      values: properties.map((p) => Number(p.landArea) || 0),
+      fmt: (v) => v ? `${v} m²` : "—",
+      bestMin: false,
+    },
+    {
+      label: "Dormitorios",
+      values: properties.map((p) => Number(p.bedrooms) || 0),
+      fmt: (v) => v || "—",
+      bestMin: false,
+    },
+    {
+      label: "Baños",
+      values: properties.map((p) => Number(p.bathrooms) || 0),
+      fmt: (v) => v || "—",
+      bestMin: false,
+    },
+    {
+      label: "Score OD",
+      values: properties.map((p) => Number(p.score) || 0),
+      fmt: (v) => {
+        if (!v) return "—";
+        const color = v >= 7.5 ? "var(--green)" : v >= 6 ? "var(--gold)" : "var(--red)";
+        return `<span style="color:${color};font-weight:700">${v.toFixed(1)}★</span>`;
+      },
+      bestMin: false,
+      raw: true,
+    },
+    {
+      label: "Costo mensual est.",
+      values: properties.map((p) => {
+        return [p.uteAvg, p.oseAvg, p.antelAvg, p.commonFees, p.insuranceAvg]
+          .map(Number).filter(Boolean).reduce((s, v) => s + v, 0);
+      }),
+      fmt: (v) => v ? formatUsd(v) : "—",
+      bestMin: true,
+    },
+    {
+      label: "Fotos",
+      values: properties.map((p) => p.photos.filter(photoSrc).length),
+      fmt: (v) => `${Math.min(100, Math.round(v / 10 * 100))}%`,
+      bestMin: false,
+    },
+    ...amenityLabels.map((label) => ({
+      label,
+      values: properties.map((p) => (p.extras || []).some((e) => e.label === label && e.value) ? 1 : 0),
+      fmt: (v) => v ? "✓" : "—",
+      bestMin: false,
+      noHighlight: true,
+    })),
+  ];
+
+  function bestIndex(row) {
+    const vals = row.values;
+    if (row.noHighlight) return -1;
+    const nonZero = vals.filter((v) => v > 0);
+    if (nonZero.length < 2) return -1;
+    const target = row.bestMin ? Math.min(...nonZero) : Math.max(...nonZero);
+    const idx = vals.indexOf(target);
+    return idx;
+  }
+
+  return `
+    <div class="compare-table-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th class="compare-row-label"></th>
+            ${properties.map((p) => {
+              const cover = photoSrc(p.photos[0]);
+              return `<th>
+                <div class="compare-property-head">
+                  ${cover ? `<img src="${escapeAttr(cover)}" alt="" class="compare-thumb">` : ""}
+                  <strong>${escapeHtml(p.title || "Propiedad")}</strong>
+                  <span>${escapeHtml(p.neighborhood || "")}</span>
+                </div>
+              </th>`;
+            }).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => {
+            const best = bestIndex(row);
+            return `<tr>
+              <td class="compare-row-label">${escapeHtml(row.label)}</td>
+              ${row.values.map((v, i) => {
+                const isBest = best === i && v > 0;
+                const content = row.raw ? row.fmt(v) : escapeHtml(String(row.fmt(v)));
+                return `<td class="${isBest ? "compare-best" : ""}">${content}</td>`;
+              }).join("")}
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderPublishChecklist() {
@@ -1535,8 +1712,12 @@ function renderPropertyModal() {
   content.innerHTML = `
     <div class="modal-sticky-summary">
       <div>
-        <h2>${escapeHtml(property.title || "Propiedad sin titulo")}</h2>
+        <h2>
+          ${escapeHtml(property.title || "Propiedad sin titulo")}
+          ${hasVerifiedLegalDocs(property) ? `<span class="verified-docs-badge">✓ Documentación verificada</span>` : ""}
+        </h2>
         <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}, ${escapeHtml(property.city || "Uruguay")}</span>
+        <p class="trust-line">Datos declarados por el propietario · Verificables con documentación adjunta</p>
       </div>
       <div class="summary-pills">
         <span>${formatUsd(Number(property.price))}</span>
@@ -1567,6 +1748,7 @@ function renderPropertyModal() {
   `;
 
   startScoreBarAnimations(content);
+  startMortgageCalc(content, Number(property.price));
   renderChat();
 }
 
@@ -1585,9 +1767,10 @@ function renderFichaPanel(property, photos, score) {
       }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
     </div>
     ${property.videos?.length ? `<div class="modal-section"><h3>Videos</h3><div class="video-links">${property.videos.map((url, i) => `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">Video ${i + 1}</a>`).join(" ")}</div></div>` : ""}
+    ${renderMortgageCalc(Number(property.price))}
     ${property.score ? `
       <div class="modal-section score-public">
-        <h3>Score OD</h3>
+        <h3>Score OD <span class="score-info-btn" tabindex="0" role="button" aria-label="¿Cómo se calcula el score?">?<span class="score-info-tooltip">El score OD Stars evalúa estructura, instalaciones, terminaciones y exterior. No es una tasación oficial. Es una guía técnica para el comprador.</span></span></h3>
         <div class="score-value">${score}</div>
         ${property.analysis?.summary ? `<p>${escapeHtml(property.analysis.summary)}</p>` : ""}
         ${property.analysis?.categories ? `
@@ -1756,6 +1939,7 @@ function renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, do
     <div class="cost-layout">
       <div class="modal-section">
         <h3>Costos mensuales</h3>
+        <p class="trust-sub">Transparencia total de costos · Actualizado por el propietario</p>
         ${monthlyCosts.length ? `
           <div class="cost-bars">
             ${monthlyCosts.map(([label, value]) => `<div>
@@ -1789,6 +1973,104 @@ function startScoreBarAnimations(container) {
     });
   }, { threshold: 0.1 });
   fills.forEach((fill) => observer.observe(fill));
+}
+
+function calcMortgage(price, downPct, years, rate) {
+  const P = price * (1 - downPct / 100);
+  const r = rate / 12 / 100;
+  const n = years * 12;
+  if (!r || !n) return { monthly: 0, financed: P, total: P };
+  const monthly = P * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+  return { monthly, financed: P, total: monthly * n };
+}
+
+function renderMortgageCalc(price) {
+  if (!price) return "";
+  return `
+    <div class="modal-section mortgage-calc">
+      <div class="mortgage-calc-head">
+        <h3>Calculadora hipotecaria</h3>
+        <span class="mortgage-disclaimer">Calculadora orientativa — consultá con tu banco</span>
+      </div>
+      <div class="mortgage-inputs">
+        <label class="mortgage-label">
+          <span>Entrada <strong class="mortgage-down-label">30%</strong></span>
+          <input id="mortgageDownpct" type="range" min="10" max="50" value="30" step="1">
+        </label>
+        <label class="mortgage-label">
+          <span>Plazo <strong class="mortgage-years-label">20 años</strong></span>
+          <input id="mortgageYears" type="range" min="10" max="30" value="20" step="1">
+        </label>
+        <label class="mortgage-label">
+          <span>Tasa anual %</span>
+          <input id="mortgageRate" type="number" min="1" max="30" value="8" step="0.1" class="mortgage-rate-input">
+        </label>
+      </div>
+      <div class="mortgage-outputs">
+        <div class="mortgage-output-row">
+          <span>Cuota mensual estimada</span>
+          <strong id="mortgageMonthly">—</strong>
+        </div>
+        <div class="mortgage-output-row">
+          <span>Total a financiar</span>
+          <strong id="mortgageFinanced">—</strong>
+        </div>
+        <div class="mortgage-output-row">
+          <span>Total pagado</span>
+          <strong id="mortgageTotal">—</strong>
+        </div>
+      </div>
+      <p id="mortgageAiContext" class="mortgage-ai-context"></p>
+    </div>
+  `;
+}
+
+let mortgageAiTimer = null;
+
+function startMortgageCalc(container, price) {
+  if (!price) return;
+  const downEl = container.querySelector("#mortgageDownpct");
+  const yearsEl = container.querySelector("#mortgageYears");
+  const rateEl = container.querySelector("#mortgageRate");
+  if (!downEl) return;
+
+  function update() {
+    const down = Number(downEl.value);
+    const years = Number(yearsEl.value);
+    const rate = Number(rateEl.value) || 8;
+    container.querySelector(".mortgage-down-label").textContent = `${down}%`;
+    container.querySelector(".mortgage-years-label").textContent = `${years} años`;
+    const { monthly, financed, total } = calcMortgage(price, down, years, rate);
+    container.querySelector("#mortgageMonthly").textContent = formatUsd(Math.round(monthly));
+    container.querySelector("#mortgageFinanced").textContent = formatUsd(Math.round(financed));
+    container.querySelector("#mortgageTotal").textContent = formatUsd(Math.round(total));
+    clearTimeout(mortgageAiTimer);
+    mortgageAiTimer = setTimeout(() => fetchMortgageContext(container, price, Math.round(monthly)), 1800);
+  }
+
+  [downEl, yearsEl, rateEl].forEach((el) => el.addEventListener("input", update));
+  update();
+}
+
+async function fetchMortgageContext(container, price, monthly) {
+  const el = container.querySelector("#mortgageAiContext");
+  if (!el || !monthly) return;
+  el.textContent = "…";
+  try {
+    const result = await callOpenRouter({
+      functionType: "search",
+      temperature: 0.3,
+      messages: [{
+        role: "user",
+        content: `Para una propiedad de USD ${price.toLocaleString("es-UY")} en Uruguay, una cuota de USD ${monthly.toLocaleString("es-UY")}/mes: escribí UNA oración corta en español sobre lo que esto representa para el comprador del segmento premium. Sin markdown, sin asteriscos, sin listas.`,
+      }],
+    });
+    const raw = typeof result === "string" ? result : (result.answer || result.summary || result.text || "");
+    const text = String(raw).replace(/\*\*/g, "").replace(/\*/g, "").trim().split(/\n/)[0].slice(0, 220);
+    el.textContent = text || "";
+  } catch {
+    el.textContent = "";
+  }
 }
 
 function animateRoomScore(el, targetValue) {
@@ -1890,6 +2172,11 @@ function costRows(property) {
 
 function verifiedDocumentTypes(property) {
   return (property.documents || []).map((doc) => doc.kind).filter(Boolean);
+}
+
+function hasVerifiedLegalDocs(property) {
+  const kinds = verifiedDocumentTypes(property);
+  return (property.plans?.length > 0) || kinds.includes("Plano aprobado");
 }
 
 function renderForm() {
@@ -4083,6 +4370,16 @@ function bindEvents() {
     renderChat();
   });
   $("#closeChatBtn").addEventListener("click", () => $("#chatWidget").classList.add("hidden"));
+  document.addEventListener("click", (event) => {
+    if (event.target.id === "openCompareBtn") { openCompareView(); return; }
+    if (event.target.id === "closeCompareBtn") { $("#compareDialog")?.close(); return; }
+    if (event.target.id === "clearCompareBtn") {
+      state.compareIds = [];
+      saveState();
+      renderMarketplace();
+      renderCompareBar();
+    }
+  });
   $("#closePropertyModalBtn").addEventListener("click", () => {
     $("#propertyModal").close();
     closeRoomSheet();
