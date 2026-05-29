@@ -940,19 +940,20 @@ body[data-view="marketplace"] .ai-search-head h3 {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 66px;
-  padding: 8px 136px 8px 22px;
-  border-radius: 20px;
-  background: rgba(11, 15, 26, 0.98);
-  border: 1.5px solid rgba(212, 175, 55, 0.35);
-  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.05), 0 20px 60px rgba(0, 0, 0, 0.4);
+  min-height: 64px;
+  padding: 8px 118px 8px 22px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 48px rgba(0, 0, 0, 0.35);
   cursor: text;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
 }
 
 .roomix-search-input:focus-within {
-  border-color: rgba(212, 175, 55, 0.65);
-  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.1), 0 20px 60px rgba(0, 0, 0, 0.4);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(212, 175, 55, 0.55);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 0 0 3px rgba(212, 175, 55, 0.1), 0 24px 48px rgba(0, 0, 0, 0.35);
 }
 
 .ai-search-thumb {
@@ -1025,9 +1026,9 @@ body[data-view="marketplace"] .ai-search-head h3 {
 }
 
 body[data-view="marketplace"] #aiSearchBtn {
-  width: 50px;
-  min-width: 50px;
-  min-height: 50px;
+  width: 46px;
+  min-width: 46px;
+  min-height: 46px;
   padding: 0;
   font-size: 0;
 }
@@ -1046,31 +1047,35 @@ body[data-view="marketplace"] #aiSearchBtn::after {
 
 .ai-image-btn.icon-only {
   position: absolute;
-  right: 68px;
+  right: 62px;
   top: 50%;
   transform: translateY(-50%);
-  width: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   display: grid;
   place-items: center;
   font-size: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   border-color: transparent;
-  opacity: 0.55;
+  opacity: 0.45;
   transition: opacity 0.2s;
 }
 
 .ai-image-btn.icon-only:hover {
-  opacity: 1;
+  opacity: 0.85;
 }
 
 .ai-image-btn.icon-only::after {
-  content: "📷";
-  font-size: 20px;
-  letter-spacing: 0;
+  display: none;
+}
+
+.ai-image-btn.icon-only svg {
+  color: rgba(244, 241, 234, 0.55);
+  pointer-events: none;
+  display: block;
 }
 
 body[data-view="marketplace"] #aiSearchBtn {
@@ -3716,17 +3721,48 @@ menu {
     height: 58px;
   }
 
-  body[data-view="marketplace"] #aiSearchBtn,
-  .ai-image-btn.icon-only,
-  #clearAiSearchBtn {
+  .ai-image-btn.icon-only {
     position: static;
     transform: none;
     width: 100%;
   }
 
-  .search-actions-row,
-  .mode-toggle {
+  /* Marketplace search bar must stay flex on mobile */
+  body[data-view="marketplace"] .roomix-search-input {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    min-height: 56px;
+    padding: 6px 58px 6px 16px !important;
+    border-radius: 14px;
+  }
+
+  body[data-view="marketplace"] .roomix-search-input #aiSearchBtn {
+    position: absolute !important;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%) !important;
+    width: 42px !important;
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  body[data-view="marketplace"] .ai-image-btn.icon-only {
+    display: none !important;
+  }
+
+  body[data-view="marketplace"] #clearAiSearchBtn {
+    position: static !important;
+    width: auto !important;
+    transform: none !important;
+  }
+
+  .search-actions-row {
     width: 100%;
+  }
+
+  .mode-toggle {
+    width: auto;
   }
 
   .mode-toggle button {
@@ -5192,23 +5228,32 @@ body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-foote
 /* ── Mode toggle gold in marketplace ─────────────────────────────── */
 
 body[data-view="marketplace"] .mode-toggle {
-  background: rgba(13, 27, 42, 0.9);
-  border-color: rgba(212, 175, 55, 0.15);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 2px;
 }
 
 body[data-view="marketplace"] .mode-toggle button {
-  color: rgba(244, 241, 234, 0.5);
+  color: rgba(244, 241, 234, 0.4);
+  font-size: 12px;
+  font-weight: 400;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
 }
 
 body[data-view="marketplace"] .mode-toggle button.active {
-  background: rgba(212, 175, 55, 0.16);
-  color: #D4AF37;
+  background: rgba(212, 175, 55, 0.12);
+  color: rgba(212, 175, 55, 0.85);
   border: none;
 }
 
 body[data-view="marketplace"] .mode-toggle span {
-  background: rgba(212, 175, 55, 0.2);
-  color: #D4AF37;
+  background: rgba(212, 175, 55, 0.18);
+  color: rgba(212, 175, 55, 0.8);
+  font-size: 10px;
 }
 
 /* ── AI search thumb gold border ─────────────────────────────────── */
@@ -5256,17 +5301,17 @@ body[data-view="marketplace"] .ai-search-box input::placeholder {
 /* ── Hero section: tagline + spaciousness ────────────────────────── */
 
 .hero-tagline {
-  margin: 16px 0 0;
-  font-size: 13px;
+  margin: 14px 0 0;
+  font-size: 11px;
   font-weight: 400;
-  color: rgba(244, 241, 234, 0.42);
-  letter-spacing: 0.06em;
+  color: rgba(244, 241, 234, 0.35);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   line-height: 1.5;
 }
 
 body[data-view="marketplace"] .panel-head {
-  padding-bottom: 28px;
+  padding-bottom: 24px;
   max-height: none;
 }
 
@@ -5274,6 +5319,28 @@ body[data-view="marketplace"] .panel-head h2 {
   letter-spacing: -0.055em;
   line-height: 0.92;
   margin-bottom: 0;
+}
+
+/* Ambient glow behind search bar area */
+body[data-view="marketplace"] .ai-search-hero {
+  position: relative;
+}
+
+body[data-view="marketplace"] .ai-search-hero::before {
+  content: "";
+  position: absolute;
+  top: -20px;
+  left: -40px;
+  right: -40px;
+  bottom: -20px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(212, 175, 55, 0.07) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+body[data-view="marketplace"] .ai-search-hero > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Results toolbar separator ───────────────────────────────────── */
