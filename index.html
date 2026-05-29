@@ -59,33 +59,33 @@
                 <div>
                   <p class="eyebrow">Owner Direct Uruguay</p>
                   <h2>Encontrá la propiedad que <em>te imaginás</em>.</h2>
+                  <p class="hero-tagline">Propiedades verificadas · Datos reales · Sin intermediarios</p>
                 </div>
               </div>
               <div class="ai-search-hero">
                 <div class="ai-search-box">
-                  <div class="roomix-search-row">
-                    <div class="roomix-search-input">
-                      <div id="aiSearchThumb" class="ai-search-thumb hidden"></div>
-                      <input id="aiSearchInput" type="search" placeholder="Buscá por barrio, precio, ambientes, amenities..." />
-                      <label class="upload-btn ai-image-btn icon-only" title="Buscar por imagen" aria-label="Buscar por imagen">
-                        Imagen
-                        <input id="aiSearchImageInput" type="file" accept="image/*" />
-                      </label>
-                      <button id="aiSearchBtn" class="primary" aria-label="Buscar con IA">Buscar con IA</button>
+                  <div class="roomix-search-input">
+                    <div id="aiSearchThumb" class="ai-search-thumb hidden"></div>
+                    <input id="aiSearchInput" type="search" placeholder="Buscá por barrio, precio, ambientes, amenities..." />
+                    <label class="upload-btn ai-image-btn icon-only" title="Buscar por imagen" aria-label="Buscar por imagen">
+                      Imagen
+                      <input id="aiSearchImageInput" type="file" accept="image/*" />
+                    </label>
+                    <button id="aiSearchBtn" class="primary" aria-label="Buscar con IA">Buscar con IA</button>
+                  </div>
+                  <div class="search-actions-row">
+                    <div class="mode-toggle" id="searchModeToggle">
+                      <button class="active" type="button" data-search-mode="ai">IA</button>
+                      <button type="button" data-search-mode="filters">Filtros <span id="activeFilterCount">0</span></button>
                     </div>
-                    <div class="search-actions-row">
-                      <div class="mode-toggle" id="searchModeToggle">
-                        <button class="active" type="button" data-search-mode="ai">IA</button>
-                        <button type="button" data-search-mode="filters">Filtros <span id="activeFilterCount">0</span></button>
-                      </div>
-                      <button id="clearAiSearchBtn">Limpiar</button>
-                    </div>
+                    <button id="clearAiSearchBtn">Limpiar</button>
                   </div>
                 </div>
                 <div id="suggestionChips" class="suggestion-chips-row">
                   <button type="button" class="suggestion-chip" data-suggestion="4 dormitorios en Carrasco">4 dormitorios en Carrasco</button>
                   <button type="button" class="suggestion-chip" data-suggestion="Hasta USD 400k con parrillero">Hasta USD 400k con parrillero</button>
                   <button type="button" class="suggestion-chip" data-suggestion="Casa con jardín">Casa con jardín</button>
+                  <button type="button" class="suggestion-chip" data-suggestion="Apartamento con terraza">Apartamento con terraza</button>
                 </div>
                 <div id="aiSearchProgress" class="ai-typing-indicator hidden">
                   <span class="typing-dot"></span>
@@ -145,8 +145,8 @@
                   <h3>Propiedades publicadas</h3>
                 </div>
                 <div class="view-switch">
-                  <button class="active" data-client-view="grid">Grid</button>
-                  <button data-client-view="list">List</button>
+                  <button class="active" data-client-view="grid">Cuadrícula</button>
+                  <button data-client-view="list">Lista</button>
                   <button data-client-view="map">Mapa</button>
                 </div>
               </div>

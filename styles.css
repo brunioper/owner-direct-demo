@@ -840,10 +840,10 @@ body[data-view="marketplace"] .panel-head .eyebrow {
 }
 
 body[data-view="marketplace"] .ai-search-hero {
-  max-width: 1060px;
-  margin: 0 0 24px;
+  max-width: 780px;
+  margin: 0 0 32px;
   padding: 0;
-  border-radius: 32px;
+  border-radius: 0;
   background: transparent;
   border-color: transparent;
   backdrop-filter: none;
@@ -932,10 +932,7 @@ body[data-view="marketplace"] .ai-search-head h3 {
 }
 
 .roomix-search-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: center;
+  display: block;
 }
 
 .roomix-search-input {
@@ -943,13 +940,19 @@ body[data-view="marketplace"] .ai-search-head h3 {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 74px;
-  padding: 10px 148px 10px 18px;
-  border-radius: 999px;
-  background: rgba(16, 17, 22, .95);
-  border: 2px solid rgba(212, 175, 55, 0.7);
-  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.12), 0 24px 90px rgba(212, 175, 55, 0.18);
+  min-height: 66px;
+  padding: 8px 136px 8px 22px;
+  border-radius: 20px;
+  background: rgba(11, 15, 26, 0.98);
+  border: 1.5px solid rgba(212, 175, 55, 0.35);
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.05), 0 20px 60px rgba(0, 0, 0, 0.4);
   cursor: text;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.roomix-search-input:focus-within {
+  border-color: rgba(212, 175, 55, 0.65);
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.1), 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
 .ai-search-thumb {
@@ -996,7 +999,7 @@ body[data-view="marketplace"] .ai-search-head h3 {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding-top: 0;
+  padding-top: 12px;
 }
 
 .search-icon-actions {
@@ -1022,9 +1025,9 @@ body[data-view="marketplace"] .ai-search-head h3 {
 }
 
 body[data-view="marketplace"] #aiSearchBtn {
-  width: 58px;
-  min-width: 58px;
-  min-height: 58px;
+  width: 50px;
+  min-width: 50px;
+  min-height: 50px;
   padding: 0;
   font-size: 0;
 }
@@ -1043,19 +1046,25 @@ body[data-view="marketplace"] #aiSearchBtn::after {
 
 .ai-image-btn.icon-only {
   position: absolute;
-  right: 78px;
+  right: 68px;
   top: 50%;
   transform: translateY(-50%);
-  width: 52px;
-  min-width: 52px;
-  min-height: 52px;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   display: grid;
   place-items: center;
   font-size: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   background: transparent;
   border-color: transparent;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+
+.ai-image-btn.icon-only:hover {
+  opacity: 1;
 }
 
 .ai-image-btn.icon-only::after {
@@ -1069,6 +1078,10 @@ body[data-view="marketplace"] #aiSearchBtn {
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+body[data-view="marketplace"] #aiSearchBtn::after {
+  font-size: 22px;
 }
 
 #clearAiSearchBtn:hover,
@@ -1089,13 +1102,13 @@ body[data-view="marketplace"] #aiSearchBtn {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
   gap: 28px;
-  max-width: 1060px;
+  max-width: 780px;
   margin-top: 18px;
   padding: 24px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(184, 164, 255, .22);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, .28);
+  border-radius: 18px;
+  background: rgba(11, 15, 26, 0.9);
+  border: 1px solid rgba(212, 175, 55, 0.14);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .4);
   opacity: 0;
   transform: translateY(-8px);
   max-height: 0;
@@ -1215,7 +1228,7 @@ body[data-view="marketplace"] .prompt-row {
   overflow: visible;
   flex-wrap: wrap;
   mask-image: none;
-  max-width: 1060px;
+  max-width: 780px;
   margin-bottom: 14px;
 }
 
@@ -1227,7 +1240,7 @@ body[data-view="marketplace"] .applied-chips,
 body[data-view="marketplace"] .recent-searches,
 body[data-view="marketplace"] .ai-search-preview,
 body[data-view="marketplace"] .ai-search-hero .hint {
-  max-width: 1060px;
+  max-width: 780px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -3904,7 +3917,8 @@ body[data-view="marketplace"] .property-card.animate-in {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 14px;
+  max-width: 780px;
 }
 
 .suggestion-chip {
@@ -5025,6 +5039,7 @@ body[data-view="marketplace"] .client-filters {
   position: sticky;
   top: 0;
   z-index: 15;
+  max-width: 780px;
 }
 
 body[data-view="marketplace"] .client-filters input,
@@ -5224,28 +5239,49 @@ body[data-view="marketplace"] #clearAiSearchBtn:hover {
 
 body[data-view="marketplace"] .ai-search-box input {
   font-family: 'Cormorant Garamond', Georgia, serif;
-  font-size: clamp(18px, 2vw, 24px);
+  font-size: clamp(17px, 1.8vw, 22px);
   font-weight: 300;
   letter-spacing: -0.01em;
+  color: rgba(244, 241, 234, 0.95);
 }
 
 body[data-view="marketplace"] .ai-search-box input::placeholder {
-  color: rgba(244, 241, 234, 0.38);
+  color: rgba(244, 241, 234, 0.32);
   font-family: 'Inter', sans-serif;
-  font-size: clamp(14px, 1.4vw, 16px);
+  font-size: clamp(13px, 1.2vw, 15px);
   font-weight: 300;
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
 }
 
-/* ── Hero section spaciousness ───────────────────────────────────── */
+/* ── Hero section: tagline + spaciousness ────────────────────────── */
+
+.hero-tagline {
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(244, 241, 234, 0.42);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
 
 body[data-view="marketplace"] .panel-head {
-  padding-bottom: 32px;
+  padding-bottom: 28px;
+  max-height: none;
 }
 
 body[data-view="marketplace"] .panel-head h2 {
   letter-spacing: -0.055em;
   line-height: 0.92;
+  margin-bottom: 0;
+}
+
+/* ── Results toolbar separator ───────────────────────────────────── */
+
+body[data-view="marketplace"] .results-toolbar {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(212, 175, 55, 0.1);
 }
 
 /* ── List view: vertical separator between photo and body ─────────── */
