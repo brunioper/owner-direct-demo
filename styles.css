@@ -792,10 +792,10 @@ body[data-view="marketplace"] .panel-head {
 body[data-view="marketplace"] .panel-head h2 {
   max-width: 900px;
   font-family: 'Cormorant Garamond', Georgia, serif;
-  font-size: clamp(48px, 6vw, 88px);
+  font-size: clamp(44px, 5.5vw, 84px);
   font-weight: 300;
-  line-height: .92;
-  letter-spacing: -0.02em;
+  line-height: 1.0;
+  letter-spacing: -0.025em;
   color: #ffffff;
 }
 
@@ -3179,7 +3179,7 @@ label {
   font-size: 96px;
   font-weight: 300;
   letter-spacing: -0.02em;
-  color: var(--gold);
+  color: #D4AF37;
   line-height: 0.9;
 }
 
@@ -3929,8 +3929,8 @@ menu {
 .card-badge-status.status-reservado { background: #6e6e73; color: #ffffff; }
 .card-badge-status.status-vendido  { background: #d2d2d7; color: #1d1d1f; }
 
-.card-badge-score.score-gold  { background: rgba(0, 113, 227, 0.9); color: #ffffff; }
-.card-badge-score.score-amber { background: rgba(0, 113, 227, 0.7); color: #ffffff; }
+.card-badge-score.score-gold  { background: rgba(212, 175, 55, 0.92); color: #1a1200; }
+.card-badge-score.score-amber { background: rgba(255, 149, 0, 0.92);  color: #ffffff; }
 .card-badge-score.score-gray  { background: rgba(110, 110, 115, 0.75); color: #ffffff; }
 
 /* Inter for card title in marketplace */
@@ -5396,13 +5396,13 @@ body[data-view="marketplace"] .ai-search-box input::placeholder {
 /* ── Hero section: tagline + spaciousness ────────────────────────── */
 
 .hero-tagline {
-  margin: 14px 0 0;
-  font-size: 17px;
+  margin: 16px 0 0;
+  font-size: 15px;
   font-weight: 400;
-  color: #6e6e73;
-  letter-spacing: 0;
-  text-transform: none;
-  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.48);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.6;
 }
 
 body[data-view="marketplace"] .panel-head {
@@ -5661,4 +5661,406 @@ body[data-view="marketplace"] .property-card:hover {
   body[data-view="marketplace"] .client-filters {
     padding: 12px 16px;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   AUDIT FIXES + VISUAL OVERHAUL — 2026-06
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Focus-visible: keyboard nav indicators ──────────────────── */
+
+button:focus-visible,
+.upload-btn:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 1px;
+}
+
+.property-card[tabindex]:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 3px;
+  border-color: #0071e3 !important;
+}
+
+/* ── 2. Hide internal status pills from buyers ────────────────────── */
+
+body[data-view="marketplace"] #aiStatus,
+body[data-view="marketplace"] #authStatus {
+  display: none;
+}
+
+/* ── 3. Body font: Inter ───────────────────────────────────────── */
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* ── 4. HERO: richer serif headline treatment ───────────────────── */
+
+body[data-view="marketplace"] .panel-head {
+  padding: clamp(72px, 9vw, 120px) clamp(20px, 5vw, 72px) 0;
+  gap: 0;
+}
+
+body[data-view="marketplace"] .panel-head .eyebrow {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.36);
+  margin-bottom: 20px;
+}
+
+body[data-view="marketplace"] .panel-head h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(52px, 6.5vw, 96px);
+  font-weight: 300;
+  line-height: 1.0;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  max-width: 820px;
+}
+
+body[data-view="marketplace"] .panel-head h2 em {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hero-tagline {
+  margin: 20px 0 0;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.8;
+}
+
+/* ── 5. SEARCH BAR: more prominent, premium feel ─────────────────── */
+
+body[data-view="marketplace"] .ai-search-hero {
+  padding: 36px clamp(20px, 5vw, 72px) 52px;
+  background: #000000;
+}
+
+body[data-view="marketplace"] .ai-search-box {
+  max-width: 740px;
+  gap: 14px;
+}
+
+body[data-view="marketplace"] .roomix-search-input {
+  min-height: 68px;
+  padding: 10px 120px 10px 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+body[data-view="marketplace"] .roomix-search-input:focus-within {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 3px rgba(0, 113, 227, 0.18);
+}
+
+body[data-view="marketplace"] .ai-search-box input {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(22px, 2.4vw, 30px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+body[data-view="marketplace"] .ai-search-box input::placeholder {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(20px, 2.2vw, 27px);
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: -0.01em;
+}
+
+/* Search-mode row */
+body[data-view="marketplace"] .search-actions-row {
+  max-width: 740px;
+  padding-top: 10px;
+}
+
+body[data-view="marketplace"] #clearAiSearchBtn {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+/* Suggestion chips: refined */
+body[data-view="marketplace"] .suggestion-chips-row {
+  max-width: 740px;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+body[data-view="marketplace"] .suggestion-chip {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  padding: 5px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.62);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+body[data-view="marketplace"] .suggestion-chip:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.90);
+}
+
+/* ── 6. RESULTS TOOLBAR: serif heading, clean divider ─────────────── */
+
+body[data-view="marketplace"] .results-toolbar {
+  padding: 28px clamp(20px, 5vw, 72px);
+  border-bottom: 1px solid #e8e8ed;
+}
+
+body[data-view="marketplace"] .results-toolbar h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(30px, 3.5vw, 46px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+
+body[data-view="marketplace"] .results-toolbar .eyebrow {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #86868b;
+}
+
+/* ── 7. CARD GRID: better padding + serif price ─────────────────── */
+
+body[data-view="marketplace"] #clientListPane {
+  padding: 32px clamp(20px, 5vw, 72px) 100px;
+}
+
+body[data-view="marketplace"] .property-grid.compact {
+  gap: 28px;
+}
+
+/* Card: tighter, crisper */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card {
+  border-radius: 18px;
+  border-color: #e8e8ed;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card:hover,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card:hover {
+  border-color: #c7c7cc;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.09);
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-media {
+  aspect-ratio: 4 / 3;
+  border-radius: 18px 18px 0 0;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body {
+  padding: 18px 20px 20px;
+  gap: 0;
+}
+
+/* Card neighborhood label */
+body[data-view="marketplace"] .card-neighborhood {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #86868b;
+  margin-bottom: 5px;
+}
+
+/* Card title: use Cormorant Garamond */
+body[data-view="marketplace"] .public-card .property-body h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(18px, 1.6vw, 22px);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.18;
+  color: #1d1d1f;
+  margin-bottom: 6px;
+  -webkit-line-clamp: 2;
+}
+
+/* Card price: Cormorant Garamond, larger */
+body[data-view="marketplace"] .public-card .public-price {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: #1d1d1f;
+  margin-top: 10px;
+  display: block;
+}
+
+/* Card USD/m²: subtler */
+body[data-view="marketplace"] .card-usd-m2 {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  color: #86868b;
+  margin: 4px 0 14px;
+  letter-spacing: 0;
+}
+
+/* Card stats row: dot separators */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row {
+  gap: 0;
+  margin-bottom: 14px;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  color: #6e6e73;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span + span::before {
+  content: ' · ';
+  color: #c7c7cc;
+}
+
+/* Card footer row */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid #f2f2f7;
+  margin-top: 2px;
+}
+
+/* Score badges: capsule, semantic colors */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-badge-status,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-badge-score {
+  backdrop-filter: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* ── 8. MODAL: serif headings ─────────────────────────────────────── */
+
+.modal-sticky-summary h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(18px, 1.8vw, 22px);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: #1d1d1f;
+}
+
+.modal-section h3,
+.score-public h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: #1d1d1f;
+  margin: 0 0 12px;
+}
+
+.modal-tabs button {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* ── 9. PRICE POSITION section in modal: Cormorant ────────────────── */
+
+.price-position-value,
+.price-position strong {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 400;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+/* detail-metrics: Cormorant for numbers */
+.detail-metrics strong {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: #1d1d1f;
+}
+
+/* ── 10. TOPBAR: slim, branded ───────────────────────────────────── */
+
+body[data-view="marketplace"] .topbar h1 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  display: block;
+}
+
+/* ── 11. Mobile refinements ──────────────────────────────────────── */
+
+@media (max-width: 680px) {
+  body[data-view="marketplace"] .panel-head {
+    padding: 52px 20px 0;
+  }
+
+  body[data-view="marketplace"] .panel-head h2 {
+    font-size: clamp(42px, 11vw, 64px);
+    letter-spacing: -0.025em;
+  }
+
+  body[data-view="marketplace"] .ai-search-hero {
+    padding: 28px 20px 40px;
+  }
+
+  body[data-view="marketplace"] .ai-search-box {
+    max-width: 100%;
+  }
+
+  body[data-view="marketplace"] .results-toolbar {
+    padding: 22px 20px;
+  }
+
+  body[data-view="marketplace"] #clientListPane {
+    padding: 24px 16px 80px;
+  }
+
+  body[data-view="marketplace"] .property-grid.compact {
+    gap: 16px;
+  }
+}
+
+/* ── 12. Score dial: always gold ─────────────────────────────────── */
+
+.score-dial { color: #D4AF37; }
+.score-dial.large { color: #D4AF37; }
+
+/* ── 13. Topbar: hide "Owner Direct" h1 text in marketplace (brand-mark only) ── */
+
+body[data-view="marketplace"] #pageTitle {
+  display: none;
 }

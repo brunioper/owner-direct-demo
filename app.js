@@ -1168,7 +1168,11 @@ function renderMarketplace() {
   if (!grid || !map) return;
   $("#clientListPane").classList.toggle("hidden", state.clientView === "map");
   $("#clientMapPane").classList.toggle("hidden", state.clientView !== "map");
-  $$("[data-client-view]").forEach((button) => button.classList.toggle("active", button.dataset.clientView === state.clientView));
+  $$("[data-client-view]").forEach((button) => {
+    const isActive = button.dataset.clientView === state.clientView;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
   renderSearchUi();
   const properties = clientFilteredProperties();
   // AI search output — keep in search hero AND show above grid
@@ -1234,6 +1238,9 @@ function renderMarketplace() {
     const isListMode = state.clientView === "list";
     card.className = `property-card public-card${isListMode ? " list-card" : " animate-in"}`;
     if (!isListMode) card.style.animationDelay = (index * 0.05) + "s";
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Ver propiedad: ${formattedTitle}`);
 
     const cover = photoSrc(property.photos[0]);
     const scoreNum = Number(property.score);
@@ -1287,6 +1294,10 @@ function renderMarketplace() {
       if (e.target.closest(".compare-toggle")) return;
       openPropertyModal(property.id);
     });
+    card.addEventListener("keydown", (e) => {
+      if (e.target.closest(".compare-toggle")) return;
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPropertyModal(property.id); }
+    });
     card.addEventListener("change", (e) => {
       if (e.target.dataset.compareId) toggleCompare(e.target.dataset.compareId);
     });
@@ -1327,7 +1338,11 @@ function publicAiExplanation(text = "") {
 }
 
 function renderSearchUi() {
-  $$("[data-search-mode]").forEach((button) => button.classList.toggle("active", button.dataset.searchMode === state.searchMode));
+  $$("[data-search-mode]").forEach((button) => {
+    const isActive = button.dataset.searchMode === state.searchMode;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
   $("#classicFilters")?.classList.toggle("hidden", state.searchMode !== "filters");
   const queryValue = $("#aiSearchInput")?.value || "";
   if (queryValue || aiSearchImageDataUrl || state.aiSearchIds || state.aiSearchExplanation) setSearchPanelOpen(true);
@@ -4717,7 +4732,7 @@ function bindEvents() {
 
   $("#propertyForm").addEventListener("change", updateSelectedFromForm);
   $("#propertyForm").addEventListener("input", updateSelectedFromForm);
-  $("#propertyForm").addEventListener("focusout", () => showToast("Guardado"));
+  $("#propertyForm").addEventListener("input", () => { clearTimeout($("#propertyForm")._saveTimer); $("#propertyForm")._saveTimer = setTimeout(() => showToast("Guardado"), 800); });
 
   $$('input[name="publishedElsewhere"]').forEach((input) => {
     input.addEventListener("change", () => {
@@ -4796,19 +4811,15 @@ function bindEvents() {
 
   $("#deleteSelectedPhotosBtn").addEventListener("click", () => {
     const ids = $$("[data-photo-select]:checked").map((input) => input.dataset.photoSelect);
-    if (!ids.length) {
-      alert("Seleccioná al menos una foto para borrar.");
-      return;
-    }
+    if (!ids.length) { alert("Seleccioná al menos una foto para borrar."); return; }
+    if (!confirm(`¿Borrar ${ids.length} foto${ids.length > 1 ? "s" : ""} seleccionada${ids.length > 1 ? "s" : ""}? Esta acción no se puede deshacer.`)) return;
     deletePhotosByIds(ids);
   });
 
   $("#deleteImportedPhotosBtn").addEventListener("click", () => {
     const ids = selectedProperty().photos.filter((photo) => photo.source && photo.source !== "manual").map((photo) => photo.id);
-    if (!ids.length) {
-      alert("No hay fotos importadas para borrar.");
-      return;
-    }
+    if (!ids.length) { alert("No hay fotos importadas para borrar."); return; }
+    if (!confirm(`¿Borrar ${ids.length} foto${ids.length > 1 ? "s" : ""} importada${ids.length > 1 ? "s" : ""}? Esta acción no se puede deshacer.`)) return;
     deletePhotosByIds(ids);
   });
 
