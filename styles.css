@@ -6414,3 +6414,129 @@ body[data-view="marketplace"] .ai-image-btn:hover {
 }
 .dash-stat-row { margin-bottom: 16px; }
 .dashboard-hero { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   TYPOGRAPHY & LAYOUT POLISH
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Serif: property card title (undo late Inter override) ───────── */
+body[data-view="marketplace"] .public-card .property-body h3,
+body[data-view="marketplace"] .property-grid .property-body h3,
+body[data-view="marketplace"] .property-grid.compact .property-body h3,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: clamp(18px, 1.5vw, 22px) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.2 !important;
+}
+
+/* ── Serif: price — larger, lighter weight ───────────────────────── */
+body[data-view="marketplace"] .public-price {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: clamp(30px, 2.8vw, 40px) !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+}
+
+/* ── Serif: backoffice & dashboard headings ──────────────────────── */
+.dashboard-hero h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(28px, 2.5vw, 38px);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+.smart-actions-head strong {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* ── Serif: editor form section headings ─────────────────────────── */
+.form-section h4 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* ── Stat numbers: large serif ───────────────────────────────────── */
+.dash-stat-num {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: 48px !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+}
+.dash-stat {
+  padding: 24px !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+}
+
+/* ── Hero: soft curved bottom edge ──────────────────────────────── */
+body[data-view="marketplace"] .panel-head {
+  border-radius: 0 0 32px 32px !important;
+  padding-bottom: 60px !important;
+}
+body[data-view="marketplace"] .ai-search-hero {
+  margin-top: 0;
+  border-top: none;
+}
+
+/* ── Property cards: depth + hover lift ─────────────────────────── */
+body[data-view="marketplace"] .property-card {
+  box-shadow: 0 2px 14px rgba(0,0,0,0.07) !important;
+  border-color: #e8eaed !important;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease !important;
+}
+body[data-view="marketplace"] .property-card:hover {
+  box-shadow: 0 10px 36px rgba(0,0,0,0.12) !important;
+  transform: translateY(-3px) !important;
+  border-color: var(--color-accent) !important;
+}
+
+/* ── Marketplace results section spacing ─────────────────────────── */
+body[data-view="marketplace"] .results-toolbar {
+  margin-top: 32px !important;
+  margin-bottom: 20px !important;
+}
+body[data-view="marketplace"] .results-toolbar h3 {
+  font-size: clamp(24px, 2.5vw, 34px) !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* ── Search: fix button clip on narrow screens ───────────────────── */
+@media (max-width: 640px) {
+  body[data-view="marketplace"] .roomix-search-input {
+    padding-right: 60px !important;
+  }
+  body[data-view="marketplace"] #aiSearchBtn {
+    padding: 0 !important;
+    min-width: 46px !important;
+    justify-content: center !important;
+    font-size: 0 !important;
+  }
+  body[data-view="marketplace"] #aiSearchBtn::after {
+    content: "→" !important;
+    font-size: 20px !important;
+  }
+}
+
+/* ── Search suggestions: wrap properly ──────────────────────────── */
+.suggestion-chips-row {
+  flex-wrap: wrap !important;
+  row-gap: 6px !important;
+}
+
+/* ── Neighbourhood context bar ───────────────────────────────────── */
+#neighborhoodContext {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-muted);
+  letter-spacing: 0.03em;
+  padding: 0 clamp(18px, 4vw, 64px);
+}
