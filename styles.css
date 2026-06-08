@@ -1,4 +1,18 @@
 :root {
+  /* ── Roomix-inspired design tokens ── */
+  --color-primary: #1E3A5F;
+  --color-accent: #2B6CB0;
+  --color-highlight: #4F46E5;
+  --color-surface: #F7F8FA;
+  --color-border: #E2E8F0;
+  --color-text: #1A202C;
+  --color-muted: #718096;
+  --color-success: #38A169;
+  --color-warning: #D69E2E;
+  --color-danger: #E53E3E;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+
   /* ── Apple Design System Surfaces ── */
   --bg: #f5f5f7;
   --bg-canvas: #000000;
@@ -89,7 +103,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
-  font-family: Helvetica, Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-body);
   display: grid;
   grid-template-columns: 280px 1fr;
 }
@@ -6063,4 +6077,284 @@ body[data-view="marketplace"] .topbar h1 {
 
 body[data-view="marketplace"] #pageTitle {
   display: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ROOMIX REDESIGN — Floating navbar, tokens, components
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Floating pill navbar ─────────────────────────────────────────── */
+.pill-nav {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  padding: 10px 28px;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  gap: 32px;
+  white-space: nowrap;
+  max-width: calc(100vw - 40px);
+}
+body[data-view="marketplace"] .pill-nav { display: flex; }
+body[data-view="marketplace"] .topbar  { display: none; }
+.pill-nav-brand { display: flex; flex-direction: column; gap: 1px; }
+.pill-nav-logo {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 15px; font-weight: 400;
+  color: var(--color-primary); letter-spacing: 0.01em; line-height: 1;
+}
+.pill-nav-sub {
+  font-size: 10px; font-weight: 500;
+  color: var(--color-muted); letter-spacing: 0.08em;
+  text-transform: uppercase; line-height: 1;
+}
+.pill-nav-links { display: flex; gap: 8px; align-items: center; }
+.pill-nav-link {
+  border: none; background: transparent;
+  font-size: 14px; font-weight: 500;
+  color: var(--color-text); cursor: pointer;
+  padding: 6px 12px; border-radius: 999px; min-height: 0;
+  transition: background 0.15s;
+}
+.pill-nav-link:hover { background: var(--color-surface); }
+.pill-nav-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.pill-nav-btn {
+  border: none; background: var(--color-accent);
+  color: #ffffff; font-size: 13px; font-weight: 600;
+  border-radius: 999px; padding: 8px 20px;
+  cursor: pointer; min-height: 0; transition: background 0.15s;
+}
+.pill-nav-btn:hover { background: var(--color-primary); }
+.pill-nav-logout {
+  background: transparent; color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+.pill-nav-logout:hover { background: var(--color-surface); color: var(--color-text); }
+
+/* ── Server error banner ──────────────────────────────────────────── */
+.server-error-banner {
+  position: fixed; top: 68px; left: 0; right: 0;
+  background: #FFFBEB; border-bottom: 2px solid #D69E2E;
+  color: #744210; height: 40px;
+  display: flex; align-items: center;
+  padding: 0 24px; z-index: 999;
+  font-size: 13px; font-weight: 500; gap: 12px;
+}
+.server-error-banner.hidden { display: none; }
+.server-error-close {
+  margin-left: auto; background: transparent; border: none;
+  color: #744210; cursor: pointer; font-size: 14px; min-height: 0; padding: 0 4px;
+}
+
+/* ── Portal hero gradient + trust pills ───────────────────────────── */
+body[data-view="marketplace"] .panel-head {
+  background: linear-gradient(135deg, #0F1E35 0%, #1A2F4E 60%, #0D1B2E 100%);
+  padding-top: clamp(100px, 12vw, 140px);
+}
+.hero-trust-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.hero-trust-pill {
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.20);
+  color: #ffffff; border-radius: 999px;
+  padding: 5px 14px; font-size: 12px; font-weight: 500;
+  font-family: var(--font-body); letter-spacing: 0.02em;
+}
+body[data-view="marketplace"] .hero-tagline { display: none; }
+body[data-view="marketplace"] .ai-search-hero { padding-top: 32px; }
+
+/* ── Search bar: wider button ─────────────────────────────────────── */
+body[data-view="marketplace"] #aiSearchBtn {
+  position: absolute; right: 8px; top: 50%;
+  transform: translateY(-50%);
+  border-radius: 999px; padding: 0 18px;
+  min-height: 46px; font-size: 14px; font-weight: 600;
+  background: var(--color-accent); border: none; color: #ffffff;
+  display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap; width: auto; min-width: 0; cursor: pointer;
+}
+body[data-view="marketplace"] #aiSearchBtn:hover { background: var(--color-primary); }
+
+/* ── IA / Filtros mode toggle ─────────────────────────────────────── */
+.mode-toggle button.active {
+  background: var(--color-highlight) !important;
+  color: #ffffff !important;
+  border-radius: 999px !important;
+  border-color: transparent !important;
+}
+.mode-toggle button:not(.active) {
+  background: #ffffff !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text) !important;
+  border-radius: 999px !important;
+}
+
+/* ── Unified pill system ──────────────────────────────────────────── */
+.suggestion-chip,
+.recent-searches button,
+.prompt-row button,
+.applied-chip,
+.search-chip,
+.refinement-row button {
+  background: #EEF2FF !important;
+  color: #3730A3 !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 6px 14px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+}
+.suggestion-chip:hover, .recent-searches button:hover,
+.prompt-row button:hover, .applied-chip:hover,
+.search-chip:hover, .refinement-row button:hover {
+  background: #E0E7FF !important;
+}
+.suggestion-chip.active, .suggestion-chip[aria-pressed="true"],
+.search-chip.active { background: #4F46E5 !important; color: #ffffff !important; }
+
+/* ── Backoffice: score badge pills ───────────────────────────────── */
+.score-badge-pill {
+  display: inline-flex; align-items: center;
+  border-radius: 999px; padding: 3px 10px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+}
+.score-badge-good { background: #C6F6D5; color: #276749; }
+.score-badge-mid  { background: #FEFCBF; color: #744210; }
+.score-badge-bad  { background: #FED7D7; color: #9B2C2C; }
+.score-badge-none { background: #EDF2F7; color: #4A5568; }
+.property-card .property-body h3 { text-transform: capitalize; }
+
+/* ── Backoffice action buttons ───────────────────────────────────── */
+.published-action {
+  color: var(--color-success) !important; font-weight: 600 !important;
+  background: transparent !important; border: none !important;
+  cursor: default !important; pointer-events: none;
+}
+.card-actions .edit-btn {
+  border: 1px solid var(--color-border) !important;
+  background: #ffffff !important; color: var(--color-text) !important;
+  border-radius: 8px !important;
+}
+.card-actions .delete-btn {
+  border: 1px solid #FEB2B2 !important;
+  background: #FFF5F5 !important; color: var(--color-danger) !important;
+  border-radius: 8px !important;
+}
+.card-actions .delete-btn:hover { background: #FED7D7 !important; }
+
+/* ── Dashboard stat row ──────────────────────────────────────────── */
+.dash-stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+.dash-stat {
+  background: var(--color-surface); border-radius: 12px; padding: 16px;
+  flex: 1; display: grid; gap: 4px; border: 1px solid var(--color-border);
+}
+.dash-stat-num { font-size: 24px; font-weight: 700; color: var(--color-text); line-height: 1; }
+.dash-stat-label { font-size: 12px; color: var(--color-muted); }
+
+/* ── Status badges: 3-state ──────────────────────────────────────── */
+.card-badge-status.status-venta    { background: #C6F6D5 !important; color: #276749 !important; }
+.card-badge-status.status-reservado{ background: #FEFCBF !important; color: #744210 !important; }
+.card-badge-status.status-vendido  { background: #FED7D7 !important; color: #9B2C2C !important; }
+
+/* ── Step progress indicator ─────────────────────────────────────── */
+.progress-step {
+  border-radius: 999px !important; padding: 0 14px !important;
+  font-size: 13px !important; font-weight: 500 !important;
+  color: var(--color-muted) !important; background: #EDF2F7 !important;
+  border: 2px solid transparent !important;
+  transition: background 400ms ease, border-color 400ms ease, color 400ms ease !important;
+  display: flex !important; align-items: center !important; gap: 8px !important;
+  min-height: 40px !important;
+}
+.progress-step span {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #CBD5E0; color: #718096;
+  font-size: 11px; font-weight: 700;
+  display: grid; place-items: center;
+  transition: background 400ms ease, color 400ms ease; flex-shrink: 0;
+}
+.progress-step.done {
+  background: #EBF8FF !important; color: var(--color-text) !important;
+  border-color: transparent !important;
+}
+.progress-step.done span  { background: var(--color-success); color: #ffffff; }
+.progress-step.active {
+  background: #EEF2FF !important; color: var(--color-highlight) !important;
+  border-color: var(--color-highlight) !important; font-weight: 700 !important;
+}
+.progress-step.active span {
+  background: transparent !important;
+  border: 2px solid var(--color-highlight); color: var(--color-highlight);
+}
+
+/* ── Toast: fixed top-right, progress bar ────────────────────────── */
+.autosave-toast {
+  position: fixed !important;
+  top: 80px !important; right: 24px !important;
+  bottom: auto !important; left: auto !important;
+  z-index: 9999 !important;
+  max-width: 360px !important; min-width: 220px !important;
+  padding: 14px 18px 20px !important;
+  border-radius: 12px !important;
+  background: var(--color-text) !important;
+  color: #ffffff !important; font-size: 14px !important; font-weight: 500 !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.20) !important;
+  opacity: 0 !important;
+  transform: translateX(calc(100% + 40px)) !important;
+  pointer-events: none; overflow: hidden;
+  transition: opacity 300ms ease, transform 300ms cubic-bezier(0.22,1,0.36,1) !important;
+}
+.autosave-toast.show { opacity: 1 !important; transform: translateX(0) !important; }
+.autosave-toast.show::after {
+  content: ''; position: absolute; bottom: 0; left: 0;
+  height: 3px; background: var(--color-accent);
+  width: 100%; transform-origin: left;
+  animation: toastProgress 6s linear forwards;
+}
+@keyframes toastProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; padding: 80px 24px; gap: 16px;
+  grid-column: 1 / -1;
+}
+.empty-state svg { opacity: 0.4; }
+.empty-state h3 {
+  font-family: var(--font-body); font-size: 18px; font-weight: 600;
+  color: var(--color-text); margin: 0;
+}
+.empty-state p { font-size: 14px; color: var(--color-muted); margin: 0; max-width: 320px; }
+.empty-state .retry-btn {
+  background: var(--color-accent); color: #ffffff;
+  border: none; border-radius: 8px; padding: 10px 24px;
+  font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px;
+}
+.empty-state .retry-btn:hover { background: var(--color-primary); }
+
+/* ── Chat panel: slide-in animation ─────────────────────────────── */
+.chat-widget {
+  transition: transform 300ms ease-out, opacity 300ms ease-out !important;
+}
+.chat-widget.hidden {
+  transform: translateX(calc(100% + 48px)) !important;
+  opacity: 0 !important; pointer-events: none !important;
+  display: grid !important;
+}
+.chat-widget:not(.hidden) { transform: translateX(0) !important; opacity: 1 !important; }
+.chat-widget-eyebrow {
+  font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--color-muted); margin: 0 0 4px;
+}
+.chat-widget-title {
+  font-size: 20px; font-weight: 600;
+  color: var(--color-text); margin: 0; font-family: var(--font-body);
 }

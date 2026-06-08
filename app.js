@@ -75,7 +75,7 @@ const defaultState = {
   chatMessages: [
     {
       role: "assistant",
-      content: "Contame presupuesto, tipo de propiedad, rutina diaria, si tenes hijos, donde trabajas y que valoras mas: seguridad, colegios, verde, vida social, playa o conexion. Con eso te recomiendo zonas y tradeoffs.",
+      content: "Contame tu presupuesto, el tipo de propiedad que buscás, tu rutina diaria y qué valorás más: seguridad, colegios, espacios verdes, vida social, playa o accesibilidad. Con esa info te recomiendo zonas y los trade-offs de cada una.",
     },
   ],
   properties: [
@@ -379,7 +379,7 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.add("show");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 1300);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 6000);
 }
 
 function setOperationProgress(selector, { title, detail = "", percent = 0, status = "active" } = {}) {
@@ -593,6 +593,8 @@ function renderAuth() {
   $(".sidebar-card")?.classList.toggle("hidden", currentRole() !== "admin");
   $("#loginBtn")?.classList.toggle("hidden", Boolean(user));
   $("#logoutBtn")?.classList.toggle("hidden", !user);
+  $("#pillNavLoginBtn")?.classList.toggle("hidden", Boolean(user));
+  $("#pillNavLogoutBtn")?.classList.toggle("hidden", !user);
   $$(".nav-btn").forEach((button) => {
     button.classList.toggle("hidden", !canAccessView(button.dataset.view));
   });
@@ -974,16 +976,16 @@ function renderBackofficeDashboard() {
   }).slice(0, 4);
 
   dashboard.innerHTML = `
+    <div class="dash-stat-row">
+      <div class="dash-stat"><span class="dash-stat-num">${published}</span><span class="dash-stat-label">Publicadas</span></div>
+      <div class="dash-stat"><span class="dash-stat-num">${avgScore}</span><span class="dash-stat-label">Score prom.</span></div>
+      <div class="dash-stat"><span class="dash-stat-num">${avgCompletion}%</span><span class="dash-stat-label">Completadas</span></div>
+    </div>
     <div class="dashboard-hero">
       <div>
         <p class="eyebrow">Backoffice</p>
         <h2>Mis propiedades</h2>
         <span>${properties.length} fichas cargadas · ${published} publicadas · ${drafts} borradores/revisión</span>
-      </div>
-      <div class="dashboard-kpis">
-        <div><strong>${published}</strong><span>Publicadas</span></div>
-        <div><strong>${avgScore}</strong><span>Score promedio</span></div>
-        <div><strong>${avgCompletion}%</strong><span>Completitud</span></div>
       </div>
     </div>
     <div class="smart-actions">
@@ -1049,44 +1051,50 @@ function renderProperties() {
     const card = document.createElement("article");
     card.className = "property-card";
     const cover = photoSrc(property.photos[0]);
-    const score = property.score ? Number(property.score).toFixed(1) : "--";
+    const scoreNum = property.score ? Number(property.score) : null;
     const complete = propertyCompleteness(property);
+    const scoreBadge = scoreNum
+      ? (() => {
+          const cls = scoreNum >= 7 ? "score-badge-good" : scoreNum >= 4 ? "score-badge-mid" : "score-badge-bad";
+          return `<span class="${cls} score-badge-pill">${scoreNum.toFixed(1)} OD</span>`;
+        })()
+      : `<span class="score-badge-none score-badge-pill">Sin análisis</span>`;
     card.innerHTML = `
       <div class="property-media">${cover ? `<img src="${cover}" alt="">` : "Sin foto principal"}</div>
       <div class="property-body">
         <h3>${escapeHtml(property.title || "Propiedad sin titulo")}</h3>
-        <div class="meta">
+        <div class="meta" style="font-size:13px;color:var(--color-muted,#718096);margin-bottom:6px">
           <span>${escapeHtml(property.type || "Propiedad")}</span>
           <span>${escapeHtml(property.neighborhood || "Barrio pendiente")}</span>
           <span>${property.bedrooms || 0} dorm.</span>
-          <span>${property.bathrooms || 0} banos</span>
+          <span>${property.bathrooms || 0} baños</span>
         </div>
         <div class="price-row">
           <span>${formatUsd(Number(property.price))}</span>
-          <span class="status-pill">${score} OD</span>
+          ${scoreBadge}
         </div>
-        <div class="meta" style="margin-top:8px">
+        <div class="meta" style="margin-top:8px;font-size:13px;color:var(--color-muted,#718096)">
           <span>${pricePerM2Label(property)}</span>
         </div>
-        <div class="meta" style="margin-top:10px">
+        <div class="meta" style="margin-top:10px;font-size:13px;color:var(--color-muted,#718096)">
           <span>${statusText(property.status)}</span>
           <span>${property.photos.length} fotos</span>
           <span>${property.videos.length} videos</span>
           <span>${property.plans.length} planos</span>
         </div>
-        <div class="quality-meter" aria-label="Completitud ${complete.percent}%">
-          <span style="width:${complete.percent}%"></span>
+        <div class="quality-meter" aria-label="Completitud ${complete.percent}%" style="margin-top:10px">
+          <span style="width:${complete.percent}%;background:var(--color-accent,#2B6CB0)"></span>
         </div>
-        <div class="meta quality-meta">
+        <div class="meta quality-meta" style="font-size:12px;color:var(--color-muted,#718096)">
           <span>${complete.percent}% completa</span>
           <span>${complete.missing.slice(0, 2).join(", ") || "Sin pendientes críticos"}</span>
         </div>
         <div class="card-actions">
           ${property.status === "published"
-            ? `<button class="published-action" data-unpublish-property="${property.id}">Publicado</button>`
+            ? `<button class="published-action" data-unpublish-property="${property.id}">✓ Publicado</button>`
             : `<button class="primary" data-publish-property="${property.id}">Publicar</button>`}
-          <button data-edit-property="${property.id}">Editar</button>
-          <button data-delete-property="${property.id}">Borrar</button>
+          <button class="edit-btn" data-edit-property="${property.id}">Editar</button>
+          <button class="delete-btn" data-delete-property="${property.id}">Borrar</button>
         </div>
       </div>
     `;
@@ -1236,6 +1244,7 @@ function renderMarketplace() {
   visibleProperties.forEach((property, index) => {
     const card = document.createElement("article");
     const isListMode = state.clientView === "list";
+    const formattedTitle = formatPropertyTitle(property.title);
     card.className = `property-card public-card${isListMode ? " list-card" : " animate-in"}`;
     if (!isListMode) card.style.animationDelay = (index * 0.05) + "s";
     card.setAttribute("tabindex", "0");
@@ -1251,7 +1260,6 @@ function renderMarketplace() {
     const photos = property.photos.filter(photoSrc);
     const photoPct = Math.min(100, Math.round(photos.length / 10 * 100));
     const pillCls = photoPct > 80 ? "photo-pill-green" : photoPct >= 50 ? "photo-pill-amber" : "photo-pill-red";
-    const formattedTitle = formatPropertyTitle(property.title);
 
     card.innerHTML = `
       <div class="property-media">
@@ -1347,7 +1355,11 @@ function renderSearchUi() {
   const queryValue = $("#aiSearchInput")?.value || "";
   if (queryValue || aiSearchImageDataUrl || state.aiSearchIds || state.aiSearchExplanation) setSearchPanelOpen(true);
   const filterCount = activeFilterCount();
-  if ($("#activeFilterCount")) $("#activeFilterCount").textContent = filterCount;
+  const filterCountEl = $("#activeFilterCount");
+  if (filterCountEl) {
+    filterCountEl.textContent = filterCount;
+    filterCountEl.style.display = filterCount > 0 ? "" : "none";
+  }
   const applied = $("#appliedSearchChips");
   if (applied) {
     const chips = extractedSearchChips(queryValue);
@@ -4511,6 +4523,14 @@ function bindEvents() {
     $("#loginDialog").showModal();
   });
   $("#logoutBtn").addEventListener("click", logout);
+  $("#pillNavLoginBtn")?.addEventListener("click", () => {
+    $("#loginOutput").classList.add("hidden");
+    $("#loginDialog").showModal();
+  });
+  $("#pillNavLogoutBtn")?.addEventListener("click", logout);
+  $("#serverErrorDismiss")?.addEventListener("click", () => {
+    $("#serverErrorBanner")?.classList.add("hidden");
+  });
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const output = $("#loginOutput");

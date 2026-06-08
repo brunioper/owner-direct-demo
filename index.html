@@ -6,7 +6,7 @@
     <title>Owner Direct Demo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..900,75,1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..900,75,1&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -29,13 +29,28 @@
       </nav>
 
       <div class="sidebar-card">
-        <span class="muted">Demo modular</span>
-        <strong>Fotos + datos + plano + score</strong>
         <p id="storageModeText">Los datos se guardan en este navegador con localStorage.</p>
       </div>
     </aside>
 
     <main class="shell">
+      <nav class="pill-nav" id="pillNav" aria-label="Navegación principal">
+        <div class="pill-nav-brand">
+          <span class="pill-nav-logo">Owner Direct</span>
+          <span class="pill-nav-sub">Uruguay</span>
+        </div>
+        <div class="pill-nav-links">
+          <button class="pill-nav-link" data-view="marketplace">Propiedades</button>
+        </div>
+        <div class="pill-nav-actions">
+          <button class="pill-nav-btn" id="pillNavLoginBtn">Ingresar</button>
+          <button class="pill-nav-btn pill-nav-logout hidden" id="pillNavLogoutBtn">Salir</button>
+        </div>
+      </nav>
+      <div id="serverErrorBanner" class="server-error-banner hidden" role="alert">
+        <span id="serverErrorMsg">Sin conexión al servidor</span>
+        <button id="serverErrorDismiss" aria-label="Cerrar" class="server-error-close">✕</button>
+      </div>
       <header class="topbar">
         <div>
           <p class="eyebrow">Marketplace owner-direct</p>
@@ -59,7 +74,11 @@
                 <div>
                   <p class="eyebrow">Owner Direct Uruguay</p>
                   <h2>Encontrá la propiedad que <em>te imaginás</em>.</h2>
-                  <p class="hero-tagline">Propiedades verificadas · Datos reales · Sin intermediarios</p>
+                  <div class="hero-trust-pills">
+                    <span class="hero-trust-pill">Propiedades verificadas</span>
+                    <span class="hero-trust-pill">Datos reales</span>
+                    <span class="hero-trust-pill">Sin intermediarios</span>
+                  </div>
                 </div>
               </div>
               <div class="ai-search-hero">
@@ -521,8 +540,8 @@
     <aside id="chatWidget" class="chat-widget hidden">
       <div class="chat-widget-head">
         <div>
-          <p class="eyebrow">Asistente IA</p>
-          <h2>Zona y propiedad</h2>
+          <p class="chat-widget-eyebrow">Asistente IA</p>
+          <h2 class="chat-widget-title">Zona y propiedad</h2>
         </div>
         <button id="closeChatBtn">Cerrar</button>
       </div>
