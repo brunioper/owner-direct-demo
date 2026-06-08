@@ -114,7 +114,7 @@ body.sidebar-collapsed {
 
 body[data-view="marketplace"] {
   display: block;
-  background: #000000;
+  background: #f7f8fa;
 }
 
 body[data-view="marketplace"] .sidebar {
@@ -6358,3 +6358,59 @@ body[data-view="marketplace"] #aiSearchBtn:hover { background: var(--color-prima
   font-size: 20px; font-weight: 600;
   color: var(--color-text); margin: 0; font-family: var(--font-body);
 }
+
+/* ── Marketplace: light background fixes ─────────────────────────── */
+
+/* Search input: light surface */
+body[data-view="marketplace"] .roomix-search-input {
+  background: #ffffff !important;
+  border: 1.5px solid var(--color-border) !important;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.07) !important;
+}
+body[data-view="marketplace"] .roomix-search-input:focus-within {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px rgba(43,108,176,0.14) !important;
+}
+body[data-view="marketplace"] .ai-search-box input {
+  color: var(--color-text) !important;
+  font-size: clamp(15px, 1.4vw, 19px) !important;
+}
+body[data-view="marketplace"] .ai-search-box input::placeholder {
+  color: var(--color-muted) !important;
+}
+
+/* Search area: horizontal padding matching hero, white card */
+body[data-view="marketplace"] .ai-search-hero {
+  background: #ffffff;
+  padding: 32px clamp(18px, 4vw, 64px) 40px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Results toolbar: dark text on light bg */
+body[data-view="marketplace"] .results-toolbar {
+  color: var(--color-text) !important;
+  padding: 0 clamp(18px, 4vw, 64px);
+}
+body[data-view="marketplace"] .results-toolbar h3 {
+  color: var(--color-text) !important;
+}
+body[data-view="marketplace"] #clientListPane {
+  background: #f7f8fa !important;
+}
+
+/* Camera icon and mode toggle on light bg */
+body[data-view="marketplace"] .ai-image-btn {
+  color: var(--color-muted) !important;
+  background: transparent !important;
+  border: none !important;
+}
+body[data-view="marketplace"] .ai-image-btn:hover {
+  color: var(--color-text) !important;
+}
+
+/* ── Backoffice dashboard: single-column, no split layout ────────── */
+.backoffice-dashboard {
+  grid-template-columns: 1fr !important;
+}
+.dash-stat-row { margin-bottom: 16px; }
+.dashboard-hero { flex-direction: column; align-items: flex-start; gap: 8px; }
