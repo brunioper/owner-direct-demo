@@ -6620,3 +6620,703 @@ body[data-view="marketplace"] .search-helper-copy .prompt-row button:hover {
   color: #fff !important;
   border-color: var(--color-accent) !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   LUXURY EDITORIAL MARKETPLACE — COMPLETE REDESIGN
+   Palette: warm cream #F8F5EF · white #FFFFFF · near-black #1A1008
+            gold #C9A84C · muted #A89880 · border #E8E0D0
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. HERO ─────────────────────────────────────────────────────── */
+
+body[data-view="marketplace"] .panel-head {
+  background: linear-gradient(145deg, #08111D 0%, #0D1B2A 55%, #091624 100%) !important;
+  padding: 88px clamp(24px, 6vw, 112px) 88px !important;
+  border-radius: 0 !important;
+  min-height: 420px !important;
+  display: flex !important;
+  align-items: center !important;
+  position: relative !important;
+}
+
+body[data-view="marketplace"] .panel-head::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E") !important;
+  opacity: 0.025 !important;
+  pointer-events: none !important;
+}
+
+body[data-view="marketplace"] .panel-head > div {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+body[data-view="marketplace"] .panel-head .eyebrow,
+body[data-view="marketplace"] .panel-head p.eyebrow {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.3em !important;
+  color: rgba(201, 168, 76, 0.65) !important;
+  text-transform: uppercase !important;
+  margin: 0 0 28px !important;
+  display: block !important;
+}
+
+body[data-view="marketplace"] .panel-head h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: clamp(54px, 7vw, 96px) !important;
+  font-weight: 300 !important;
+  line-height: 1.02 !important;
+  letter-spacing: -0.025em !important;
+  color: #F5F0E8 !important;
+  margin: 0 0 36px !important;
+  max-width: 14ch !important;
+}
+
+body[data-view="marketplace"] .panel-head h2 em {
+  font-style: italic !important;
+  font-weight: 300 !important;
+  color: rgba(201, 168, 76, 0.88) !important;
+}
+
+/* Trust pills: transparent outline on dark bg */
+body[data-view="marketplace"] .hero-trust-pills {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin: 0 !important;
+}
+
+body[data-view="marketplace"] .hero-trust-pill {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  color: rgba(245, 240, 232, 0.6) !important;
+  background: transparent !important;
+  border: 1px solid rgba(201, 168, 76, 0.25) !important;
+  border-radius: 980px !important;
+  padding: 7px 16px !important;
+  box-shadow: none !important;
+}
+
+/* Gold rule: bridge from hero to search */
+body[data-view="marketplace"] .panel-head::after {
+  content: '' !important;
+  position: absolute !important;
+  bottom: -1px !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 1px !important;
+  background: transparent !important;
+}
+
+/* ── 2. SEARCH — warm cream, editorial input ─────────────────────── */
+
+body[data-view="marketplace"] .ai-search-hero {
+  max-width: none !important;
+  margin: 0 !important;
+  background: #F8F5EF !important;
+  padding: 52px clamp(24px, 6vw, 112px) 52px !important;
+  border-top: none !important;
+  border-bottom: 1px solid #E8E0D0 !important;
+}
+
+body[data-view="marketplace"] .roomix-search-input {
+  background: #ffffff !important;
+  border: 1px solid #D8D0C0 !important;
+  border-radius: 3px !important;
+  box-shadow: 0 1px 4px rgba(26,16,8,0.05) !important;
+  min-height: 62px !important;
+}
+
+body[data-view="marketplace"] .roomix-search-input:focus-within {
+  border-color: #C9A84C !important;
+  box-shadow: 0 0 0 3px rgba(201,168,76,0.14) !important;
+}
+
+body[data-view="marketplace"] .roomix-search-input input {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 300 !important;
+  color: #1A1008 !important;
+  background: transparent !important;
+}
+
+body[data-view="marketplace"] .roomix-search-input input::placeholder {
+  color: #B0A090 !important;
+  font-weight: 300 !important;
+  font-style: italic !important;
+  opacity: 1 !important;
+}
+
+/* Gold search button */
+body[data-view="marketplace"] #aiSearchBtn {
+  background: #C9A84C !important;
+  color: #1A1008 !important;
+  border: none !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+body[data-view="marketplace"] #aiSearchBtn:hover {
+  background: #B8973B !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Camera icon on light bg */
+body[data-view="marketplace"] .ai-image-btn {
+  color: #B0A090 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Search actions: thin separator line, minimal mode toggle */
+body[data-view="marketplace"] .search-actions-row {
+  border-top: 1px solid #EDE8DF !important;
+  padding-top: 12px !important;
+  margin-top: 10px !important;
+}
+
+body[data-view="marketplace"] .mode-toggle {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  gap: 18px !important;
+}
+
+body[data-view="marketplace"] .mode-toggle button {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  color: #B0A090 !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1.5px solid transparent !important;
+  border-radius: 0 !important;
+  padding: 4px 0 !important;
+  min-height: 0 !important;
+}
+
+body[data-view="marketplace"] .mode-toggle button.active {
+  color: #1A1008 !important;
+  background: transparent !important;
+  border-bottom-color: #C9A84C !important;
+}
+
+/* Suggestion chips: outline, warm */
+body[data-view="marketplace"] .suggestion-chip {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.03em !important;
+  color: #5A4E3C !important;
+  background: transparent !important;
+  border: 1px solid #D8D0C0 !important;
+  border-radius: 980px !important;
+  padding: 7px 16px !important;
+  box-shadow: none !important;
+  transition: background 0.15s, color 0.15s, border-color 0.15s !important;
+}
+
+body[data-view="marketplace"] .suggestion-chip:hover {
+  background: #1A1008 !important;
+  color: #F8F5EF !important;
+  border-color: #1A1008 !important;
+}
+
+/* Search helper dropdown: warm light card */
+body[data-view="marketplace"] .search-helper-panel {
+  background: #ffffff !important;
+  border: 1px solid #E8E0D0 !important;
+  box-shadow: 0 8px 40px rgba(26,16,8,0.10) !important;
+  border-radius: 4px !important;
+  grid-template-columns: 1fr !important;
+}
+
+body[data-view="marketplace"] .search-helper-images { display: none !important; }
+
+body[data-view="marketplace"] .recent-searches span {
+  color: #B0A090 !important;
+  font-weight: 400 !important;
+  font-size: 9px !important;
+  letter-spacing: 0.2em !important;
+  text-transform: uppercase !important;
+}
+
+body[data-view="marketplace"] .recent-searches button {
+  color: #5A4E3C !important;
+  background: #F8F5EF !important;
+  border-color: #E8E0D0 !important;
+}
+
+body[data-view="marketplace"] .recent-searches button:hover {
+  background: #1A1008 !important;
+  color: #F8F5EF !important;
+  border-color: #1A1008 !important;
+}
+
+body[data-view="marketplace"] .search-helper-copy .prompt-row > span {
+  color: #B0A090 !important;
+  font-size: 9px !important;
+  letter-spacing: 0.2em !important;
+  text-transform: uppercase !important;
+}
+
+body[data-view="marketplace"] .search-helper-copy .prompt-row button {
+  color: #5A4E3C !important;
+  background: #F8F5EF !important;
+  border: 1px solid #E8E0D0 !important;
+}
+
+body[data-view="marketplace"] .search-helper-copy .prompt-row button:hover {
+  background: #1A1008 !important;
+  color: #F8F5EF !important;
+}
+
+/* ── 3. RESULTS — editorial heading, warm bg ────────────────────── */
+
+body[data-view="marketplace"] .results-toolbar {
+  background: #F8F5EF !important;
+  padding: 52px clamp(24px, 6vw, 112px) 36px !important;
+  border-top: none !important;
+  border-bottom: 1px solid #E8E0D0 !important;
+  margin: 0 !important;
+}
+
+body[data-view="marketplace"] .results-toolbar .eyebrow,
+body[data-view="marketplace"] .results-toolbar p.eyebrow {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 9px !important;
+  letter-spacing: 0.28em !important;
+  text-transform: uppercase !important;
+  color: #C9A84C !important;
+  margin-bottom: 10px !important;
+  font-weight: 400 !important;
+}
+
+body[data-view="marketplace"] .results-toolbar h3 {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: clamp(34px, 4vw, 52px) !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.08 !important;
+  color: #1A1008 !important;
+  margin: 0 !important;
+}
+
+body[data-view="marketplace"] .view-switch {
+  background: transparent !important;
+  border: 1px solid #D8D0C0 !important;
+  border-radius: 3px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+
+body[data-view="marketplace"] .view-switch button {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: #A89880 !important;
+  background: transparent !important;
+  border: none !important;
+  border-right: 1px solid #D8D0C0 !important;
+  border-radius: 0 !important;
+  padding: 9px 16px !important;
+  min-height: 0 !important;
+}
+
+body[data-view="marketplace"] .view-switch button:last-child {
+  border-right: none !important;
+}
+
+body[data-view="marketplace"] .view-switch button.active {
+  background: #1A1008 !important;
+  color: #F8F5EF !important;
+}
+
+/* Results list pane */
+body[data-view="marketplace"] #clientListPane {
+  background: #F8F5EF !important;
+  padding: 48px clamp(24px, 6vw, 112px) 96px !important;
+}
+
+body[data-view="marketplace"] #neighborhoodContext {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.08em !important;
+  color: #A89880 !important;
+  padding: 0 !important;
+  margin-bottom: 28px !important;
+}
+
+body[data-view="marketplace"] #aiResultSummary {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 300 !important;
+  font-style: italic !important;
+  color: #5A4E3C !important;
+  margin-bottom: 36px !important;
+  padding-bottom: 20px !important;
+  border-bottom: 1px solid #E8E0D0 !important;
+}
+
+/* ── 4. PROPERTY GRID ────────────────────────────────────────────── */
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) !important;
+  gap: 32px !important;
+}
+
+/* ── 5. PROPERTY CARD — luxury editorial anatomy ────────────────── */
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card {
+  background: #ffffff !important;
+  border: none !important;
+  border-radius: 2px !important;
+  box-shadow: 0 1px 3px rgba(26,16,8,0.07), 0 4px 14px rgba(26,16,8,0.04) !important;
+  overflow: hidden !important;
+  transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), box-shadow 0.35s ease !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card:hover,
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .list-card:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 12px 48px rgba(26,16,8,0.13) !important;
+  border-color: transparent !important;
+}
+
+/* Photo */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-media {
+  aspect-ratio: 16 / 10 !important;
+  border-radius: 0 !important;
+  background: #EDE8DF !important;
+  overflow: hidden !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-media img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  transition: transform 0.55s cubic-bezier(0.22,1,0.36,1) !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-card:hover .property-media img {
+  transform: scale(1.04) !important;
+}
+
+/* Photo gradient scrim — helps badges read over any photo */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-media::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.18) 0%, transparent 38%, transparent 62%, rgba(0,0,0,0.22) 100%) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* Status badge: frosted glass pill, top-left */
+body[data-view="marketplace"] .card-badge-status {
+  top: 12px !important;
+  left: 12px !important;
+  right: auto !important;
+  bottom: auto !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 9px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  padding: 6px 12px !important;
+  border-radius: 980px !important;
+  backdrop-filter: blur(10px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.4) !important;
+  z-index: 2 !important;
+}
+
+body[data-view="marketplace"] .card-badge-status.status-venta {
+  background: rgba(245,240,232,0.88) !important;
+  color: #1A1008 !important;
+  border: none !important;
+}
+
+body[data-view="marketplace"] .card-badge-status.status-reservado {
+  background: rgba(201,168,76,0.88) !important;
+  color: #1A1008 !important;
+  border: none !important;
+}
+
+body[data-view="marketplace"] .card-badge-status.status-vendido {
+  background: rgba(26,16,8,0.82) !important;
+  color: rgba(245,240,232,0.75) !important;
+  border: none !important;
+}
+
+/* Score badge: gold pill, bottom-right of photo */
+body[data-view="marketplace"] .card-badge-score {
+  top: auto !important;
+  bottom: 12px !important;
+  right: 12px !important;
+  left: auto !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.04em !important;
+  padding: 5px 11px !important;
+  border-radius: 980px !important;
+  z-index: 2 !important;
+}
+
+body[data-view="marketplace"] .card-badge-score.score-gold {
+  background: #C9A84C !important;
+  color: #1A1008 !important;
+}
+
+body[data-view="marketplace"] .card-badge-score.score-amber {
+  background: #E8A020 !important;
+  color: #1A1008 !important;
+}
+
+/* Card body */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body {
+  padding: 22px 24px 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  background: #ffffff !important;
+}
+
+/* Order: neighborhood → price → title → usd/m2 → stats → footer */
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-neighborhood {
+  order: 1 !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.24em !important;
+  text-transform: uppercase !important;
+  color: #C9A84C !important;
+  margin: 0 0 10px !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .public-price {
+  order: 2 !important;
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: clamp(28px, 2.8vw, 36px) !important;
+  font-weight: 300 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+  color: #1A1008 !important;
+  margin: 0 0 5px !important;
+  display: block !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .property-body h3 {
+  order: 3 !important;
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-size: 18px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.005em !important;
+  line-height: 1.2 !important;
+  color: #5A4E3C !important;
+  margin: 0 0 14px !important;
+  -webkit-line-clamp: 2 !important;
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-usd-m2 {
+  order: 4 !important;
+  display: block !important;
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  color: #A89880 !important;
+  letter-spacing: 0.04em !important;
+  margin: -10px 0 14px !important;
+}
+
+/* Stats row: thin separator */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row {
+  order: 5 !important;
+  display: flex !important;
+  gap: 0 !important;
+  flex-wrap: nowrap !important;
+  border-top: 1px solid #F0EBE2 !important;
+  padding-top: 14px !important;
+  margin: 0 0 10px !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: #7A6E5E !important;
+  background: transparent !important;
+  padding: 0 !important;
+  white-space: nowrap !important;
+}
+
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-stats-row span + span::before {
+  content: "  ·  " !important;
+  color: #C8BCA8 !important;
+}
+
+/* Footer: photo pill + compare */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) .card-footer-row {
+  order: 6 !important;
+  margin-top: auto !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+/* Photo completion pill */
+body[data-view="marketplace"] .photo-pill {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.06em !important;
+  padding: 4px 10px !important;
+  border-radius: 980px !important;
+}
+
+body[data-view="marketplace"] .photo-pill-green {
+  background: rgba(76,175,125,0.12) !important;
+  color: #2E7D52 !important;
+}
+
+body[data-view="marketplace"] .photo-pill-amber {
+  background: rgba(201,168,76,0.14) !important;
+  color: #856B20 !important;
+}
+
+body[data-view="marketplace"] .photo-pill-red {
+  background: rgba(224,90,90,0.12) !important;
+  color: #B03030 !important;
+}
+
+/* Compare toggle: ultra-minimal */
+body[data-view="marketplace"] .compare-toggle {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: #C8BCA8 !important;
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 4px 0 !important;
+}
+
+body[data-view="marketplace"] .compare-toggle:hover {
+  color: #1A1008 !important;
+}
+
+/* ── 6. PHOTO FALLBACK — elegant monogram ───────────────────────── */
+
+body[data-view="marketplace"] .photo-fallback {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #EDE8DF !important;
+  font-family: 'Cormorant Garamond', serif !important;
+  font-size: 64px !important;
+  font-weight: 300 !important;
+  color: #C9A84C !important;
+  opacity: 0.5 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* ── 7. PILL NAVBAR — warm light pill on cream ──────────────────── */
+
+body[data-view="marketplace"] .pill-navbar {
+  background: rgba(255,255,255,0.92) !important;
+  border: 1px solid rgba(216,208,192,0.7) !important;
+  box-shadow: 0 2px 20px rgba(26,16,8,0.10) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-brand {
+  color: #1A1008 !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-brand small {
+  color: #A89880 !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-link {
+  color: #5A4E3C !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-link:hover {
+  color: #1A1008 !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-cta {
+  background: #1A1008 !important;
+  color: #F8F5EF !important;
+}
+
+body[data-view="marketplace"] .pill-navbar-cta:hover {
+  background: #2D1E0E !important;
+}
+
+/* ── 8. RESPONSIVE ──────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  body[data-view="marketplace"] .panel-head {
+    padding: 60px 24px 60px !important;
+    min-height: 320px !important;
+  }
+
+  body[data-view="marketplace"] .panel-head h2 {
+    font-size: 48px !important;
+    max-width: none !important;
+  }
+
+  body[data-view="marketplace"] .ai-search-hero {
+    padding: 36px 24px !important;
+  }
+
+  body[data-view="marketplace"] .results-toolbar {
+    padding: 36px 24px 28px !important;
+  }
+
+  body[data-view="marketplace"] #clientListPane {
+    padding: 32px 16px 64px !important;
+  }
+
+  body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+}
+
