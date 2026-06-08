@@ -7320,3 +7320,80 @@ body[data-view="marketplace"] .pill-navbar-cta:hover {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   DESKTOP CENTERING FIXES — removes 740px cap, centers content zones
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 1. Remove 740px cap inherited from earlier rule (line 5769) */
+body[data-view="marketplace"] .ai-search-box   { max-width: none !important; width: 100% !important; }
+body[data-view="marketplace"] .search-actions-row  { max-width: none !important; }
+body[data-view="marketplace"] .suggestion-chips-row { max-width: none !important; }
+
+/* 2. Remove the 18px margin gap between hero and search section */
+body[data-view="marketplace"] .panel-head { margin-bottom: 0 !important; }
+
+/* 3. Tighten hero — was 88px top/bottom, headline up to 96px → 574px total */
+body[data-view="marketplace"] .panel-head {
+  padding: 72px max(24px, calc((100% - 1320px) / 2)) 72px !important;
+  min-height: 320px !important;
+}
+body[data-view="marketplace"] .panel-head h2 {
+  font-size: clamp(46px, 5vw, 76px) !important;
+  margin-bottom: 28px !important;
+}
+
+/* 4. Center search content at 880px — full-bleed cream bg, narrow centered input */
+body[data-view="marketplace"] .ai-search-hero {
+  padding: 52px max(24px, calc((100% - 880px) / 2)) 52px !important;
+}
+
+/* 5. Center results toolbar and grid at 1280px — consistent with card grid width */
+body[data-view="marketplace"] .results-toolbar {
+  padding: 48px max(24px, calc((100% - 1280px) / 2)) 36px !important;
+}
+body[data-view="marketplace"] #clientListPane {
+  padding: 40px max(24px, calc((100% - 1280px) / 2)) 96px !important;
+}
+
+/* 6. Results toolbar: keep heading and view-switch on same line, no wrap */
+body[data-view="marketplace"] .results-toolbar {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+}
+body[data-view="marketplace"] .results-toolbar > div:first-child {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+body[data-view="marketplace"] .results-toolbar .view-switch {
+  flex-shrink: 0 !important;
+}
+
+/* 7. Grid: consistent 3-column at 1280px content, 2-column at tablet */
+body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 28px !important;
+}
+@media (max-width: 1024px) {
+  body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+@media (max-width: 640px) {
+  body[data-view="marketplace"] .property-grid.compact:not(.list-mode) {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+  body[data-view="marketplace"] .panel-head {
+    padding: 56px 24px 56px !important;
+  }
+  body[data-view="marketplace"] .ai-search-hero {
+    padding: 40px 24px 40px !important;
+  }
+  body[data-view="marketplace"] .results-toolbar,
+  body[data-view="marketplace"] #clientListPane {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
