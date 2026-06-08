@@ -6540,3 +6540,83 @@ body[data-view="marketplace"] .results-toolbar h3 {
   letter-spacing: 0.03em;
   padding: 0 clamp(18px, 4vw, 64px);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   SEARCH AREA — FULL-WIDTH + LIGHT PANEL
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Remove 780px cap; let it span full width like the hero above it */
+body[data-view="marketplace"] .ai-search-hero {
+  max-width: none !important;
+  margin: 0 !important;
+  background: #f7f8fa !important;
+  padding: 36px clamp(18px, 4vw, 64px) 44px !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  border-top: none !important;
+}
+
+/* Search input: visible border on light background */
+body[data-view="marketplace"] .roomix-search-input {
+  background: #ffffff !important;
+  border: 1.5px solid #d0d5dd !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+body[data-view="marketplace"] .roomix-search-input:focus-within {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px rgba(43,108,176,0.12) !important;
+}
+body[data-view="marketplace"] .roomix-search-input input {
+  color: var(--color-text) !important;
+}
+body[data-view="marketplace"] .roomix-search-input input::placeholder {
+  color: var(--color-muted) !important;
+  opacity: 1 !important;
+}
+
+/* Search helper dropdown: light card instead of near-black */
+body[data-view="marketplace"] .search-helper-panel {
+  background: #ffffff !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10) !important;
+  grid-template-columns: 1fr !important;
+}
+
+/* Hide the empty "Buscá por imagen" column in light mode */
+body[data-view="marketplace"] .search-helper-images {
+  display: none !important;
+}
+
+/* Label "BÚSQUEDAS RECIENTES" — dark text on white */
+body[data-view="marketplace"] .recent-searches span {
+  color: var(--color-muted) !important;
+  font-weight: 600 !important;
+}
+
+/* Recent search chips — dark-on-light */
+body[data-view="marketplace"] .recent-searches button {
+  color: var(--color-text) !important;
+  background: #eef2f7 !important;
+  border: 1px solid var(--color-border) !important;
+}
+body[data-view="marketplace"] .recent-searches button:hover {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-color: var(--color-accent) !important;
+}
+
+/* "Probá buscando" label */
+body[data-view="marketplace"] .search-helper-copy .prompt-row > span {
+  color: var(--color-muted) !important;
+}
+
+/* Prompt chips inside the dropdown */
+body[data-view="marketplace"] .search-helper-copy .prompt-row button {
+  color: var(--color-text) !important;
+  background: #eef2f7 !important;
+  border: 1px solid var(--color-border) !important;
+}
+body[data-view="marketplace"] .search-helper-copy .prompt-row button:hover {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  border-color: var(--color-accent) !important;
+}

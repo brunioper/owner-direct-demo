@@ -4086,17 +4086,17 @@ async function* streamSearchCall(messages) {
 function scheduleAiSearch() {
   clearTimeout(aiSearchDebounceTimer);
   aiSearchDebounceTimer = setTimeout(() => {
-    if ($("#aiSearchInput")?.value.trim().length >= 3) runAiPropertySearch();
+    if ($("#aiSearchInput")?.value.trim().length >= 3) runAiPropertySearch(false);
   }, 300);
 }
 
-async function runAiPropertySearch() {
+async function runAiPropertySearch(saveToHistory = true) {
   const query = $("#aiSearchInput").value.trim();
   if (!query && !aiSearchImageDataUrl) return;
   clearTimeout(aiSearchDebounceTimer);
   $("#aiSearchBtn").disabled = true;
   setAiSearchProgress(true);
-  rememberSearch(query);
+  if (saveToHistory) rememberSearch(query);
   try {
     await nextFrameDelay();
     const source = state.properties.filter((p) => p.status === "published");
