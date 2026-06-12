@@ -2199,7 +2199,7 @@ function renderFichaPanel(property, photos, score) {
       ${photos.length ? photos.slice(0, 12).map((photo, i) => {
         const room = roomsById.get(photo.roomId);
         return `<figure class="${i === 0 ? "featured" : ""}">
-          <img src="${photoSrc(photo)}" alt="${escapeAttr(room?.name || formattedModalTitle || "Foto")}">
+          <img src="${photoSrc(photo)}" alt="${escapeAttr(room?.name || formatPropertyTitle(property.title) || "Foto")}">
         </figure>`;
       }).join("") : `<div class="placeholder">Sin fotos cargadas</div>`}
     </div>
