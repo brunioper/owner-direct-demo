@@ -42,3 +42,33 @@ alter table public.ai_settings enable row level security;
 --   ('PASTE_ADMIN_UUID', 'admin@admin.com', 'admin'),
 --   ('PASTE_VENDEDOR_UUID', 'vendedor@vendedor.com', 'vendedor'),
 --   ('PASTE_USER_UUID', 'user@user.com', 'user');
+
+-- ============================================================
+-- AI settings — server-side OpenRouter key + model routing
+-- ============================================================
+-- The admin sets the OpenRouter API key in the Admin IA panel; it is stored
+-- here inside ai_settings.config (jsonb) and used for ALL visitors. The key and
+-- any backup-provider keys live in the JSON, so no extra columns are needed.
+-- This block is idempotent and safe to run on an existing database.
+
+-- Backfill columns if an older ai_settings table predates them:
+alter table public.ai_settings add column if not exists scope      text not null default 'global';
+alter table public.ai_settings add column if not exists owner_id   uuid;
+alter table public.ai_settings add column if not exists profile    text not null default 'balanced';
+alter table public.ai_settings add column if not exists config     jsonb not null default '{}'::jsonb;
+alter table public.ai_settings add column if not exists health     jsonb not null default '{}'::jsonb;
+alter table public.ai_settings add column if not exists updated_at timestamptz not null default now();
+
+-- SECURITY: config holds the plaintext OpenRouter key. RLS is enabled (above)
+-- and there are intentionally NO anon/authenticated policies, so only the
+-- server's service-role key (which bypasses RLS) can read or write it. The
+-- public anon key cannot read the key. Do NOT add a SELECT policy here.
+
+-- Seed the single global row (empty key; the admin fills it from the UI):
+insert into public.ai_settings (id, scope, profile, config)
+values ('global', 'global', 'balanced',
+        '{"profile":"balanced","apiKey":"","backupProviders":[],"functions":{}}'::jsonb)
+on conflict (id) do nothing;
+
+-- Optional: verify RLS is on (rowsecurity should be true):
+--   select relname, relrowsecurity from pg_class where relname = 'ai_settings';
