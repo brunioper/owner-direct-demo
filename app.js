@@ -2691,12 +2691,23 @@ function startScoreBarAnimations(container) {
 }
 
 function calcMortgage(price, downPct, years, rate) {
-  const P = price * (1 - downPct / 100);
-  const r = rate / 12 / 100;
-  const n = years * 12;
-  if (!r || !n) return { monthly: 0, financed: P, total: P };
-  const monthly = P * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
-  return { monthly, financed: P, total: monthly * n };
+  const downAmount = price * (downPct / 100);
+  const principal = price - downAmount;          // monto a financiar
+  const r = rate / 12 / 100;                      // tasa mensual
+  const n = years * 12;                           // número de cuotas
+  let monthly;
+  if (!n) {
+    monthly = 0;
+  } else if (!r) {
+    monthly = principal / n;                       // tasa 0 → amortización lineal
+  } else {
+    // Cuota fija (sistema francés)
+    monthly = principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+  }
+  const totalPaid = monthly * n;                   // suma de todas las cuotas (capital + interés)
+  const totalInterest = Math.max(0, totalPaid - principal);
+  const totalCost = downAmount + totalPaid;        // costo real: entrega + cuotas
+  return { monthly, downAmount, financed: principal, totalPaid, totalInterest, totalCost };
 }
 
 function renderMortgageCalc(price) {
@@ -2718,7 +2729,7 @@ function renderMortgageCalc(price) {
         </label>
         <label class="mortgage-label">
           <span>Tasa anual %</span>
-          <input id="mortgageRate" type="number" min="1" max="30" value="8" step="0.1" class="mortgage-rate-input">
+          <input id="mortgageRate" type="number" min="0" max="30" value="6" step="0.1" class="mortgage-rate-input">
         </label>
       </div>
       <div class="mortgage-outputs">
@@ -2727,11 +2738,19 @@ function renderMortgageCalc(price) {
           <strong id="mortgageMonthly">—</strong>
         </div>
         <div class="mortgage-output-row">
-          <span>Total a financiar</span>
+          <span>Entrega inicial</span>
+          <strong id="mortgageDown">—</strong>
+        </div>
+        <div class="mortgage-output-row">
+          <span>Monto a financiar</span>
           <strong id="mortgageFinanced">—</strong>
         </div>
         <div class="mortgage-output-row">
-          <span>Total pagado</span>
+          <span>Intereses totales</span>
+          <strong id="mortgageInterest">—</strong>
+        </div>
+        <div class="mortgage-output-row total">
+          <span>Costo total <em>(entrega + cuotas)</em></span>
           <strong id="mortgageTotal">—</strong>
         </div>
       </div>
@@ -2752,15 +2771,18 @@ function startMortgageCalc(container, price) {
   function update() {
     const down = Number(downEl.value);
     const years = Number(yearsEl.value);
-    const rate = Number(rateEl.value) || 8;
+    const rawRate = Number(rateEl.value);
+    const rate = Number.isFinite(rawRate) && rawRate >= 0 && rateEl.value !== "" ? rawRate : 6;
     container.querySelector(".mortgage-down-label").textContent = `${down}%`;
     container.querySelector(".mortgage-years-label").textContent = `${years} años`;
-    const { monthly, financed, total } = calcMortgage(price, down, years, rate);
-    container.querySelector("#mortgageMonthly").textContent = formatUsd(Math.round(monthly));
-    container.querySelector("#mortgageFinanced").textContent = formatUsd(Math.round(financed));
-    container.querySelector("#mortgageTotal").textContent = formatUsd(Math.round(total));
+    const m = calcMortgage(price, down, years, rate);
+    container.querySelector("#mortgageMonthly").textContent = formatUsd(Math.round(m.monthly));
+    container.querySelector("#mortgageDown").textContent = formatUsd(Math.round(m.downAmount));
+    container.querySelector("#mortgageFinanced").textContent = formatUsd(Math.round(m.financed));
+    container.querySelector("#mortgageInterest").textContent = m.totalInterest > 0 ? formatUsd(Math.round(m.totalInterest)) : "US$ 0";
+    container.querySelector("#mortgageTotal").textContent = formatUsd(Math.round(m.totalCost));
     clearTimeout(mortgageAiTimer);
-    mortgageAiTimer = setTimeout(() => fetchMortgageContext(container, price, Math.round(monthly)), 1800);
+    mortgageAiTimer = setTimeout(() => fetchMortgageContext(container, price, Math.round(m.monthly)), 1800);
   }
 
   [downEl, yearsEl, rateEl].forEach((el) => el.addEventListener("input", update));

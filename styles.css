@@ -4458,6 +4458,22 @@ body[data-view="marketplace"] .property-card.animate-in {
   font-size: 18px;
 }
 
+.mortgage-output-row.total {
+  background: #f6f5f1;
+  border-top: 2px solid var(--line);
+}
+
+.mortgage-output-row.total strong {
+  font-size: 16px;
+}
+
+.mortgage-output-row span em {
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.65;
+  margin-left: 2px;
+}
+
 .mortgage-ai-context {
   font-size: 12px;
   color: var(--muted);
