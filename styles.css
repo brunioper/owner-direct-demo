@@ -7705,3 +7705,25 @@ body[data-view="marketplace"] .pill-nav-btn:not(.pill-nav-logout) {
   color: #ffffff !important;
 }
 
+
+/* ── Pill-nav role links: active + multi-link layout ─────────────── */
+.pill-nav-links { display: flex; gap: 4px; align-items: center; }
+.pill-nav-link.active {
+  background: #0D1F3C;
+  color: #EDF3FF;
+  font-weight: 600;
+}
+body[data-view="marketplace"] .pill-nav-link {
+  color: #2D4870;
+}
+body[data-view="marketplace"] .pill-nav-link:hover {
+  background: #E8EFF8;
+}
+body[data-view="marketplace"] .pill-nav-link.active {
+  background: #0D1F3C;
+  color: #EDF3FF;
+}
+body[data-view="marketplace"] .pill-nav-link.active:hover {
+  background: #0D1F3C;
+  color: #EDF3FF;
+}

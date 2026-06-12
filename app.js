@@ -587,6 +587,20 @@ function renderAuth() {
       <button type="button" data-top-view="${item.view}" class="${$(`#view-${item.view}`)?.classList.contains("active") ? "active" : ""}">${item.label}</button>
     `).join("");
   }
+  const pillNavLinks = $("#pillNavLinks");
+  if (pillNavLinks) {
+    const pillItems = [
+      { view: "marketplace", label: "Propiedades" },
+      ...(canManageProperties() ? [
+        { view: "properties", label: "Backoffice" },
+        { view: "editor", label: "Cargar" },
+      ] : []),
+      ...(currentRole() === "admin" ? [{ view: "settings", label: "Admin IA" }] : []),
+    ];
+    pillNavLinks.innerHTML = pillItems.map((item) => `
+      <button type="button" class="pill-nav-link ${$(`#view-${item.view}`)?.classList.contains("active") ? "active" : ""}" data-top-view="${item.view}">${item.label}</button>
+    `).join("");
+  }
   const marketplaceActive = $("#view-marketplace")?.classList.contains("active");
   $("#aiStatus")?.classList.toggle("hidden", marketplaceActive || currentRole() !== "admin");
   status?.classList.toggle("hidden", marketplaceActive);
@@ -4500,7 +4514,7 @@ function bindEvents() {
     state.editorMode = "edit";
     setView(button.dataset.view);
   }));
-  $("#topRoleNav")?.addEventListener("click", (event) => {
+  const handleRoleNavClick = (event) => {
     const view = event.target.dataset.topView;
     if (!view) return;
     if (!canAccessView(view)) {
@@ -4513,7 +4527,9 @@ function bindEvents() {
     }
     state.editorMode = "edit";
     setView(view);
-  });
+  };
+  $("#topRoleNav")?.addEventListener("click", handleRoleNavClick);
+  $("#pillNavLinks")?.addEventListener("click", handleRoleNavClick);
   $("#sidebarToggle").addEventListener("click", () => {
     document.body.classList.toggle("sidebar-collapsed");
     localStorage.setItem("od-sidebar-collapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
