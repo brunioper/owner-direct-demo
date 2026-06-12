@@ -2073,15 +2073,36 @@ window.selectClientPropertyFromMap = (id) => openPropertyModal(id);
 function openPropertyModal(id) {
   state.selectedId = id;
   saveState();
-  renderPropertyModal();
+  // Render must never block the modal from opening — if a property has unusual
+  // data, show a fallback instead of silently failing to open.
+  try {
+    renderPropertyModal();
+  } catch (error) {
+    console.error("No se pudo renderizar el detalle de la propiedad", error);
+    const content = $("#propertyModalContent");
+    if (content) {
+      content.innerHTML = `<div class="empty" style="padding:32px 24px">
+        <strong>No se pudo cargar todo el detalle de esta propiedad.</strong>
+        <span>Probá recargar la página. Detalle técnico: ${escapeHtml(error.message || String(error))}</span>
+      </div>`;
+    }
+    const titleEl = $("#modalTitle");
+    if (titleEl) titleEl.textContent = "Propiedad";
+  }
   history.pushState({ od: "modal", id }, "", "#ficha");
-  $("#propertyModal").showModal();
+  const modal = $("#propertyModal");
+  if (modal && !modal.open) {
+    try { modal.showModal(); } catch (error) { console.warn("showModal", error); }
+  }
 }
 
 function renderPropertyModal() {
   const property = state.properties.find((item) => item.id === state.selectedId) || selectedProperty();
   const content = $("#propertyModalContent");
   if (!property || !content) return;
+  // Properties loaded from the server/Supabase may lack array fields (photos,
+  // rooms, etc.). Backfill defaults so the render below never throws on them.
+  ensurePropertyDefaults(property);
 
   const isOwnerView = canManageProperties() || propertyOwnedByCurrentUser(property);
   const MODAL_TABS = isOwnerView
