@@ -5,13 +5,20 @@ const AI_USAGE_KEY = "od-demo-ai-usage-v1";
 const AUTH_KEY = "od-demo-auth-v1";
 const LOCAL_API_BASE = "http://127.0.0.1:4173";
 const DEFAULT_MODEL = "openrouter/free";
+// Seed list of free OpenRouter models. The admin picker is refreshed live from
+// /api/models, so this is only the offline fallback. "openrouter/free" is the
+// auto free router and always resolves to an available model.
 const MODEL_PRESETS = [
   "openrouter/free",
+  "meta-llama/llama-3.3-70b-instruct:free",
   "openai/gpt-oss-120b:free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-  "google/gemma-4-31b-it:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 ];
+// Models exposed to the admin as available "live" options (overwritten by /api/models).
+let LIVE_MODELS = { free: [...MODEL_PRESETS], all: [...MODEL_PRESETS], vision: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "nvidia/nemotron-nano-12b-v2-vl:free"] };
 const AI_FUNCTIONS = {
   search: { label: "Búsqueda IA", help: "Texto natural, imagen de referencia y ranking de propiedades.", speed: "rápido", quality: "media/alta" },
   vision: { label: "Fotos", help: "Análisis visual de fotos, ambientes y calidad de imagen.", speed: "medio", quality: "visual" },
@@ -31,30 +38,30 @@ const MODEL_PROFILES = {
     label: "Rápido y económico",
     description: "Prioriza modelos free/livianos para demos rápidas.",
     functions: {
-      search: ["openrouter/free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
-      vision: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      plan: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      score: ["openrouter/free", "openai/gpt-oss-120b:free", "meta-llama/llama-3.2-3b-instruct:free"],
+      search: ["openrouter/free", "meta-llama/llama-3.2-3b-instruct:free", "nvidia/nemotron-nano-9b-v2:free"],
+      vision: ["openrouter/free", "nvidia/nemotron-nano-12b-v2-vl:free", "google/gemma-4-26b-a4b-it:free"],
+      plan: ["openrouter/free", "nvidia/nemotron-nano-12b-v2-vl:free", "google/gemma-4-26b-a4b-it:free"],
+      score: ["openrouter/free", "meta-llama/llama-3.2-3b-instruct:free", "nvidia/nemotron-nano-9b-v2:free"],
     },
   },
   balanced: {
     label: "Equilibrado",
     description: "Default: buen balance para búsqueda, fotos, planos y scoring.",
     functions: {
-      search: ["openrouter/free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
+      search: ["openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "openai/gpt-oss-120b:free"],
       vision: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
       plan: ["openrouter/free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
-      score: ["openrouter/free", "openai/gpt-oss-120b:free", "google/gemma-4-31b-it:free"],
+      score: ["meta-llama/llama-3.3-70b-instruct:free", "openrouter/free", "openai/gpt-oss-120b:free"],
     },
   },
   quality: {
     label: "Máxima calidad",
-    description: "Prueba primero modelos más pesados/omni para mejor análisis.",
+    description: "Prueba primero modelos más potentes para mejor análisis.",
     functions: {
-      search: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free"],
-      vision: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
-      plan: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
-      score: ["openrouter/free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openai/gpt-oss-120b:free"],
+      search: ["meta-llama/llama-3.3-70b-instruct:free", "openai/gpt-oss-120b:free", "openrouter/free"],
+      vision: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free", "openrouter/free"],
+      plan: ["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free", "openrouter/free"],
+      score: ["meta-llama/llama-3.3-70b-instruct:free", "openai/gpt-oss-120b:free", "openrouter/free"],
     },
   },
 };
@@ -131,6 +138,8 @@ let settings = loadSettings();
 let aiModelConfig = loadAiModelConfig();
 let authSession = loadAuthSession();
 let serverConfig = {};
+// Server-side AI key/config status (never holds the raw key — only masked preview).
+let aiConfigMeta = { serverKeyConfigured: false, storedKeyConfigured: false, envKeyConfigured: false, apiKeyPreview: "" };
 let remoteSaveTimer = null;
 let loadingRemote = false;
 let initialLoadComplete = false;
@@ -253,11 +262,26 @@ function normalizeAiModelConfig(config) {
   return result;
 }
 
+// Remap only genuinely-retired/invalid model ids to a safe current default so old
+// saved configs (browser localStorage or DB) self-heal on load. Models that still
+// exist in the live catalog are left untouched.
+const RETIRED_MODEL_MAP = {
+  "minimax/minimax-m2.5-20260211:free": "openrouter/free",
+  "tencent/hy3-preview:free": "openrouter/free",
+  "nvidia/llama-nemotron-embed-vl-1b-v2:free": "nvidia/nemotron-nano-12b-v2-vl:free",
+  "nvidia/nemotron-3.5-content-safety:free": "openrouter/free",
+  // 2024-era ids accidentally introduced earlier — never existed in this catalog:
+  "google/gemini-2.0-flash-exp:free": "openrouter/free",
+  "meta-llama/llama-3.1-8b-instruct:free": "meta-llama/llama-3.2-3b-instruct:free",
+  "mistralai/mistral-7b-instruct:free": "openrouter/free",
+  "google/gemma-2-9b-it:free": "google/gemma-4-31b-it:free",
+  "meta-llama/llama-3.2-11b-vision-instruct:free": "nvidia/nemotron-nano-12b-v2-vl:free",
+  "qwen/qwen-2-vl-7b-instruct:free": "nvidia/nemotron-nano-12b-v2-vl:free",
+};
 function normalizeModelName(model = "") {
   const value = String(model || "").trim();
   if (!value) return DEFAULT_MODEL;
-  if (value === "minimax/minimax-m2.5-20260211:free") return "openrouter/free";
-  return value;
+  return RETIRED_MODEL_MAP[value] || value;
 }
 
 function saveAiModelConfig({ remote = true } = {}) {
@@ -643,12 +667,25 @@ async function logout() {
 }
 
 function renderSettings() {
-  $("#apiKeyInput").value = settings.apiKey || "";
   const profile = $("#modelProfileSelect");
   if (profile) profile.value = aiModelConfig.profile || "balanced";
-  const configured = Boolean(settings.apiKey || serverConfig.openRouterConfigured);
-  $("#aiStatus").textContent = configured ? (settings.apiKey ? "OpenRouter configurado" : "OpenRouter en servidor") : "OpenRouter sin configurar";
-  $("#aiStatus").className = configured ? "status-pill" : "status-pill warn";
+  // The key lives server-side. Show its masked preview as the placeholder; never
+  // prefill the raw value. Admin types a new key only to change it.
+  const keyInput = $("#apiKeyInput");
+  if (keyInput) {
+    keyInput.value = "";
+    keyInput.placeholder = aiConfigMeta.storedKeyConfigured
+      ? `Configurada (${aiConfigMeta.apiKeyPreview || "••••"}) — escribí una nueva para cambiarla`
+      : "sk-or-v1-… (pegá tu API key de OpenRouter)";
+  }
+  const configured = Boolean(aiConfigMeta.serverKeyConfigured || serverConfig.openRouterConfigured);
+  const statusEl = $("#aiStatus");
+  if (statusEl) {
+    statusEl.textContent = configured
+      ? (aiConfigMeta.storedKeyConfigured ? "OpenRouter configurado" : "OpenRouter (env)")
+      : "OpenRouter sin configurar";
+    statusEl.className = configured ? "status-pill" : "status-pill warn";
+  }
   renderModelManager();
   renderAiUsage();
 }
@@ -666,8 +703,8 @@ function renderModelManager() {
     <div class="model-summary-card system ${systemStatus}">
       <span class="model-status ${systemStatus === "ok" ? "ok" : systemStatus === "fallback" ? "warn" : "bad"}">${systemStatus === "ok" ? "Sistema OK" : systemStatus === "fallback" ? "Fallback activo" : "Revisar IA"}</span>
       <strong>Routing IA</strong>
-      <small>${serverConfig.openRouterConfigured ? "Server key configurada" : "Server key pendiente"}</small>
-      <em>${settings.apiKey ? "Override del browser activo" : `Storage: ${escapeHtml(serverConfig.aiRoutingStorage || "auto")}`}</em>
+      <small>${aiConfigMeta.serverKeyConfigured ? "Key activa para todo el público" : "Key pendiente — la IA no responde aún"}</small>
+      <em>${aiConfigMeta.storedKeyConfigured ? `Key admin: ${escapeHtml(aiConfigMeta.apiKeyPreview || "••••")}` : aiConfigMeta.envKeyConfigured ? "Key por variable de entorno" : `Storage: ${escapeHtml(serverConfig.aiRoutingStorage || "auto")}`}</em>
     </div>
     ${Object.entries(AI_FUNCTIONS).map(([key, info]) => {
     const item = aiModelConfig.functions[key];
@@ -683,7 +720,8 @@ function renderModelManager() {
 
   grid.innerHTML = Object.entries(AI_FUNCTIONS).map(([key, info]) => {
     const item = aiModelConfig.functions[key];
-    const queue = uniqueStrings([item.activeModel, ...(item.fallbacks || []), ...MODEL_PRESETS]);
+    const liveOptions = key === "vision" || key === "plan" ? LIVE_MODELS.vision : LIVE_MODELS.free;
+    const queue = uniqueStrings([item.activeModel, ...(item.fallbacks || []), ...liveOptions, ...MODEL_PRESETS]);
     const fallbackRows = (item.fallbacks || []).map((model, index) => `
       <div class="fallback-row" draggable="true" data-fallback-index="${index}" data-fallback-function="${key}">
         <span>${index + 1}</span>
@@ -806,6 +844,7 @@ async function loadServerConfig() {
   await validateAuthSession();
   renderSettings();
   await loadRemoteAiConfig();
+  fetchLiveModels();
   await loadRemoteProperties();
   initialLoadComplete = true;
   renderMarketplace();
@@ -816,26 +855,66 @@ async function loadRemoteAiConfig() {
     const response = await fetch(apiUrl("/api/ai-config"), { headers: authHeaders() });
     if (!response.ok) return;
     const data = await response.json();
+    aiConfigMeta = {
+      serverKeyConfigured: Boolean(data.serverKeyConfigured),
+      storedKeyConfigured: Boolean(data.storedKeyConfigured),
+      envKeyConfigured: Boolean(data.envKeyConfigured),
+      apiKeyPreview: data.apiKeyPreview || "",
+    };
     if (data.config) {
       aiModelConfig = normalizeAiModelConfig(data.config);
       localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiModelConfig));
-      renderSettings();
     }
+    renderSettings();
   } catch (error) {
     console.warn("No se pudo cargar configuración IA", error);
   }
 }
 
-async function syncAiConfigRemote() {
-  if (!currentUser() || currentRole() !== "admin") return;
+// Refresh the admin model picker from OpenRouter's live catalog so options never go stale.
+async function fetchLiveModels() {
   try {
-    await fetch(apiUrl("/api/ai-config"), {
+    const response = await fetch(apiUrl("/api/models"));
+    if (!response.ok) return;
+    const data = await response.json();
+    const free = Array.isArray(data.free) ? data.free.filter(Boolean) : [];
+    const all = Array.isArray(data.all) ? data.all.filter(Boolean) : [];
+    const vision = Array.isArray(data.vision) ? data.vision.filter(Boolean) : LIVE_MODELS.vision;
+    if (free.length || all.length) {
+      LIVE_MODELS = { free: free.length ? free : all, all: all.length ? all : free, vision };
+      renderSettings();
+    }
+  } catch (error) {
+    console.warn("No se pudieron cargar modelos en vivo", error);
+  }
+}
+
+async function syncAiConfigRemote({ apiKey, clearApiKey = false } = {}) {
+  if (!currentUser() || currentRole() !== "admin") return { ok: false, error: "Solo admin." };
+  try {
+    const body = { config: aiModelConfig };
+    if (clearApiKey) body.clearApiKey = true;
+    else if (typeof apiKey === "string" && apiKey.trim()) body.apiKey = apiKey.trim();
+    const response = await fetch(apiUrl("/api/ai-config"), {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ config: aiModelConfig }),
+      body: JSON.stringify(body),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: data.error || `Error ${response.status}` };
+    aiConfigMeta = {
+      serverKeyConfigured: Boolean(data.serverKeyConfigured ?? data.storedKeyConfigured ?? aiConfigMeta.serverKeyConfigured),
+      storedKeyConfigured: Boolean(data.storedKeyConfigured),
+      envKeyConfigured: aiConfigMeta.envKeyConfigured,
+      apiKeyPreview: data.apiKeyPreview ?? aiConfigMeta.apiKeyPreview,
+    };
+    // Reflect stored key in serverConfig so AI gating across the app updates immediately.
+    serverConfig.openRouterConfigured = aiConfigMeta.serverKeyConfigured || serverConfig.envKeyConfigured;
+    serverConfig.storedKeyConfigured = aiConfigMeta.storedKeyConfigured;
+    return { ok: true, data };
   } catch (error) {
     console.warn("No se pudo guardar configuración IA", error);
+    return { ok: false, error: error.message };
   }
 }
 
@@ -3350,7 +3429,9 @@ function photoSrc(photo) {
 
 function modelSupportsVision(model = "") {
   const value = model.toLowerCase();
-  return value === "openrouter/free" || ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava", "omni"].some((token) => value.includes(token));
+  if (value === "openrouter/free") return true;
+  if (Array.isArray(LIVE_MODELS.vision) && LIVE_MODELS.vision.map((m) => String(m).toLowerCase()).includes(value)) return true;
+  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma-3", "gemma-4", "-vl", "vl-", "llava", "omni", "pixtral", "internvl"].some((token) => value.includes(token));
 }
 
 function modelQueueSupportsVision(functionType) {
@@ -3904,17 +3985,17 @@ function applyScrapeReview(property, review) {
 }
 
 async function testAiConnection() {
-  settings.apiKey = $("#apiKeyInput").value.trim();
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  // Use a typed key as a transient test override; otherwise test the server-stored key.
+  const typedKey = ($("#apiKeyInput").value || "").trim();
 
   $("#testAiBtn").disabled = true;
   $("#testAiBtn").textContent = "Probando...";
   $("#aiTestOutput").classList.remove("hidden");
-  $("#aiTestOutput").textContent = "Probando modelos activos...";
+  $("#aiTestOutput").textContent = typedKey ? "Probando con la key ingresada…" : "Probando modelos activos con la key del servidor…";
   try {
     const results = [];
     for (const key of Object.keys(AI_FUNCTIONS)) {
-      results.push(await testModelFunction(key));
+      results.push(await testModelFunction(key, null, typedKey));
     }
     $("#aiTestOutput").innerHTML = `<strong>Chequeo terminado.</strong><br>${results.map((item) => `${escapeHtml(AI_FUNCTIONS[item.functionType].label)}: ${item.ok ? "OK" : "falló"} · ${escapeHtml(item.model || item.error || "")}`).join("<br>")}`;
   } catch (error) {
@@ -3925,15 +4006,16 @@ async function testAiConnection() {
   }
 }
 
-async function testModelFunction(functionType, model = null) {
+async function testModelFunction(functionType, model = null, keyOverride = "") {
   const item = aiModelConfig.functions[functionType];
   const target = model || item.activeModel;
   updateModelStatus(functionType, { status: "testing" });
   const started = Date.now();
+  const overrideKey = (keyOverride || settings.apiKey || "").trim();
   try {
     const response = await fetch(apiUrl("/api/openrouter/test"), {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(settings.apiKey ? { "X-OpenRouter-Key": settings.apiKey } : {}) },
+      headers: { "Content-Type": "application/json", ...(overrideKey ? { "X-OpenRouter-Key": overrideKey } : {}) },
       body: JSON.stringify({ model: target, functionType }),
     });
     const data = await response.json().catch(() => ({}));
@@ -4925,10 +5007,31 @@ function bindEvents() {
     renderAll();
   });
 
-  $("#saveSettingsBtn").addEventListener("click", () => {
-    settings.apiKey = $("#apiKeyInput").value.trim();
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    saveAiModelConfig();
+  $("#saveSettingsBtn").addEventListener("click", async () => {
+    const output = $("#aiTestOutput");
+    const typedKey = ($("#apiKeyInput").value || "").trim();
+    if (currentRole() !== "admin") {
+      if (output) { output.classList.remove("hidden"); output.textContent = "Solo un administrador puede guardar la configuración de IA."; }
+      return;
+    }
+    if (output) { output.classList.remove("hidden"); output.textContent = "Guardando configuración…"; }
+    // Persist models + (optionally) a new key, server-side, for ALL visitors.
+    aiModelConfig = normalizeAiModelConfig(aiModelConfig);
+    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiModelConfig));
+    const result = await syncAiConfigRemote(typedKey ? { apiKey: typedKey } : {});
+    if (output) {
+      output.textContent = result.ok
+        ? (typedKey ? "Guardado. API key almacenada en el servidor para todo el público." : "Configuración guardada.")
+        : `No se pudo guardar: ${result.error || "error"}`;
+    }
+    renderSettings();
+  });
+  $("#clearAiKeyBtn")?.addEventListener("click", async () => {
+    const output = $("#aiTestOutput");
+    if (currentRole() !== "admin") return;
+    const result = await syncAiConfigRemote({ clearApiKey: true });
+    if (output) { output.classList.remove("hidden"); output.textContent = result.ok ? "API key eliminada del servidor." : `Error: ${result.error}`; }
+    renderSettings();
   });
   $("#testAiBtn").addEventListener("click", testAiConnection);
   $("#resetAiConfigBtn").addEventListener("click", () => {

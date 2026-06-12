@@ -1,44 +1,57 @@
 {
   "profile": "balanced",
+  "apiKey": "",
+  "backupProviders": [],
   "functions": {
     "search": {
-      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "fallbacks": [],
-      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "lastSuccessAt": "2026-05-08T21:15:20.356Z",
-      "status": "failed",
-      "averageMs": 314
+      "activeModel": "openrouter/free",
+      "fallbacks": [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "openai/gpt-oss-120b:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free"
+      ],
+      "lastSuccessfulModel": "",
+      "lastSuccessAt": "",
+      "status": "unknown",
+      "averageMs": null
     },
     "vision": {
-      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "activeModel": "openrouter/free",
       "fallbacks": [
-        "tencent/hy3-preview:free",
-        "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-nano-12b-v2-vl:free"
       ],
-      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "lastSuccessAt": "2026-05-08T21:15:44.237Z",
-      "status": "active",
-      "averageMs": 168987
+      "lastSuccessfulModel": "",
+      "lastSuccessAt": "",
+      "status": "unknown",
+      "averageMs": null
     },
     "plan": {
-      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "activeModel": "openrouter/free",
       "fallbacks": [
-        "tencent/hy3-preview:free"
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-nano-12b-v2-vl:free"
       ],
-      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "lastSuccessAt": "2026-05-08T20:51:16.089Z",
-      "status": "active",
-      "averageMs": 3044
+      "lastSuccessfulModel": "",
+      "lastSuccessAt": "",
+      "status": "unknown",
+      "averageMs": null
     },
     "score": {
-      "activeModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "activeModel": "openai/gpt-oss-120b:free",
       "fallbacks": [
-        "google/gemma-4-31b-it:free"
+        "openrouter/free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free"
       ],
-      "lastSuccessfulModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "lastSuccessAt": "2026-05-08T20:51:20.370Z",
-      "status": "active",
-      "averageMs": 43461
+      "lastSuccessfulModel": "",
+      "lastSuccessAt": "",
+      "status": "unknown",
+      "averageMs": null
     }
   }
 }

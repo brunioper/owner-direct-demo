@@ -508,12 +508,13 @@
             </div>
             <div class="panel-actions">
               <button id="resetAiConfigBtn">Reset defaults</button>
+              <button id="clearAiKeyBtn">Quitar key</button>
               <button id="testAiBtn">Probar activos</button>
               <button id="saveSettingsBtn" class="primary">Guardar</button>
             </div>
           </div>
           <div class="form-grid">
-            <label>API key
+            <label>API key de OpenRouter (se guarda en el servidor para todo el público)
               <input id="apiKeyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off" />
             </label>
             <label>Perfil
@@ -528,8 +529,9 @@
           <div id="aiUsagePanel" class="ai-usage-panel"></div>
           <div class="model-manager-grid" id="modelManagerGrid"></div>
           <div class="hint ai-manager-hint">
-            La selección se guarda en este navegador y, si Supabase está activo, también como configuración global del admin.
-            Cada operación prueba el modelo activo y luego su cola de fallback.
+            La API key se almacena en el servidor (nunca se expone a visitantes) y habilita la IA para todo el público.
+            Solo un administrador puede cambiarla. Los modelos se listan en vivo desde OpenRouter; si uno falla,
+            el sistema prueba automáticamente el siguiente de la cola de fallback.
           </div>
           <div id="aiTestOutput" class="hint hidden"></div>
         </div>

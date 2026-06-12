@@ -10,21 +10,29 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABAS
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPEN_ROUTER_API_KEY || "";
+// Seed list of free OpenRouter models (text). "openrouter/free" is the auto free
+// router and is the safest default — it always resolves to an available free model.
+// The live /api/models endpoint refreshes the admin picker, and the runner
+// auto-skips any model the provider rejects (400), so this only needs to be a sane
+// seed — it self-heals at runtime.
 const STABLE_TEXT_MODELS = [
   "openrouter/free",
+  "meta-llama/llama-3.3-70b-instruct:free",
   "openai/gpt-oss-120b:free",
-  "google/gemma-4-31b-it:free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
 ];
+// Free models that accept image input (vision/omni/VL).
 const STABLE_VISION_MODELS = [
   "openrouter/free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   "google/gemma-4-31b-it:free",
-  "openai/gpt-oss-120b:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "nvidia/nemotron-nano-12b-v2-vl:free",
 ];
+// Embedding/safety-only models that can't do chat completions.
 const UNSUPPORTED_CHAT_MODELS = new Set([
   "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+  "nvidia/nemotron-3.5-content-safety:free",
 ]);
 const OPENROUTER_FALLBACK_MODELS = process.env.OPENROUTER_FALLBACK_MODELS || [
   ...STABLE_TEXT_MODELS,
@@ -107,6 +115,10 @@ const server = http.createServer(async (req, res) => {
       await handleAiHealth(req, res);
       return;
     }
+    if (req.method === "GET" && parsed.pathname === "/api/models") {
+      await handleListModels(req, res);
+      return;
+    }
     if (req.method === "POST" && parsed.pathname === "/api/auth/login") {
       await handleLogin(req, res);
       return;
@@ -132,8 +144,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
+      const routingConfig = await loadAiRoutingConfig().catch(() => null);
+      const storedKey = Boolean(routingConfig?.apiKey) || (routingConfig?.backupProviders || []).some((p) => p.apiKey);
       sendJson(res, 200, {
-        openRouterConfigured: Boolean(OPENROUTER_API_KEY),
+        openRouterConfigured: Boolean(OPENROUTER_API_KEY) || storedKey,
+        envKeyConfigured: Boolean(OPENROUTER_API_KEY),
+        storedKeyConfigured: storedKey,
         defaultModel: DEFAULT_MODEL,
         aiRoutingStorage: AI_ROUTING_STORAGE,
         supabaseConfigured: supabaseConfigured(),
@@ -304,6 +320,14 @@ function canSeeProperty(user, property) {
 function defaultAiConfig() {
   return {
     profile: "balanced",
+    // Server-stored OpenRouter key. Set by an admin via /api/ai-config; used for
+    // ALL traffic (incl. public visitors) so AI works on a public deployment.
+    // Never returned raw to clients — only a masked preview.
+    apiKey: "",
+    // Optional OpenAI-compatible backup providers tried after OpenRouter models
+    // are exhausted. Each: { id, label, baseUrl, apiKey, models: [] }.
+    // e.g. Groq free tier: baseUrl "https://api.groq.com/openai/v1".
+    backupProviders: [],
     functions: {
       search: {
         activeModel: DEFAULT_MODEL,
@@ -345,34 +369,18 @@ async function handleGetAiConfig(req, res) {
   const session = await sessionFromRequest(req);
   const user = session?.user || null;
   const config = await loadAiRoutingConfig();
-  const publicPayload = {
+  const safe = publicAiConfig(config);
+  // serverKeyConfigured = AI will actually run (env key OR admin-stored key).
+  sendJson(res, 200, {
     configured: supabaseConfigured() || AI_ROUTING_STORAGE === "disk",
     storage: AI_ROUTING_STORAGE,
-    serverKeyConfigured: Boolean(OPENROUTER_API_KEY),
-    config,
-  };
-  if (!canManageAiConfig(user)) {
-    sendJson(res, 200, { ...publicPayload, readonly: true });
-    return;
-  }
-  if (AI_ROUTING_STORAGE === "disk" || !supabaseConfigured()) {
-    sendJson(res, 200, publicPayload);
-    return;
-  }
-  const fallback = defaultAiConfig();
-  const response = await fetch(supabaseUrl(`${SUPABASE_AI_SETTINGS_TABLE}?select=config,health,profile&scope=eq.global&limit=1`), {
-    headers: supabaseHeaders(),
-  });
-  if (!response.ok) {
-    sendJson(res, 200, { configured: true, config: fallback, warning: await response.text() });
-    return;
-  }
-  const [row] = await response.json();
-  sendJson(res, 200, {
-    configured: true,
-    config: row?.config || fallback,
-    health: row?.health || {},
-    profile: row?.profile || row?.config?.profile || fallback.profile,
+    serverKeyConfigured: Boolean(OPENROUTER_API_KEY) || safe.storedKeyConfigured,
+    storedKeyConfigured: safe.storedKeyConfigured,
+    envKeyConfigured: Boolean(OPENROUTER_API_KEY),
+    apiKeyPreview: safe.apiKeyPreview,
+    config: safe.config,
+    profile: safe.config.profile,
+    readonly: !canManageAiConfig(user),
   });
 }
 
@@ -384,11 +392,29 @@ async function handleSaveAiConfig(req, res) {
     return;
   }
   const body = await readBody(req);
-  const { config, health = {} } = JSON.parse(body || "{}");
+  const { config, apiKey, clearApiKey = false, health = {} } = JSON.parse(body || "{}");
+  const existing = await loadAiRoutingConfig();
   const normalized = normalizeAiConfig(config);
+
+  // Merge secrets: clients usually send config WITHOUT the key (we never give it
+  // to them). Preserve the stored key unless the admin explicitly sets/clears it.
+  if (clearApiKey) {
+    normalized.apiKey = "";
+  } else if (typeof apiKey === "string" && apiKey.trim()) {
+    normalized.apiKey = apiKey.trim();
+  } else {
+    normalized.apiKey = existing.apiKey || "";
+  }
+  // Preserve per-backup-provider keys by id when the client omits them.
+  normalized.backupProviders = (normalized.backupProviders || []).map((provider) => {
+    if (provider.apiKey) return provider;
+    const prior = (existing.backupProviders || []).find((p) => p.id === provider.id);
+    return prior ? { ...provider, apiKey: prior.apiKey } : provider;
+  });
+
   if (AI_ROUTING_STORAGE === "disk" || !supabaseConfigured()) {
     await saveDiskAiConfig(normalized);
-    sendJson(res, 200, { configured: false, storage: "disk", saved: true, config: normalized });
+    sendJson(res, 200, { configured: false, storage: "disk", saved: true, ...publicAiConfig(normalized) });
     return;
   }
   const row = {
@@ -409,7 +435,7 @@ async function handleSaveAiConfig(req, res) {
     sendJson(res, response.status, { error: await response.text() });
     return;
   }
-  sendJson(res, 200, { configured: true, saved: true, config: normalized });
+  sendJson(res, 200, { configured: true, saved: true, ...publicAiConfig(normalized) });
 }
 
 async function loadAiRoutingConfig() {
@@ -441,7 +467,12 @@ async function saveDiskAiConfig(config) {
 function normalizeAiConfig(config) {
   const fallback = defaultAiConfig();
   const next = config && typeof config === "object" ? config : fallback;
-  const result = { profile: next.profile || fallback.profile, functions: {} };
+  const result = {
+    profile: next.profile || fallback.profile,
+    apiKey: typeof next.apiKey === "string" ? next.apiKey.trim() : "",
+    backupProviders: normalizeBackupProviders(next.backupProviders),
+    functions: {},
+  };
   for (const key of ["search", "vision", "plan", "score"]) {
     const item = next.functions?.[key] || fallback.functions[key];
     result.functions[key] = {
@@ -454,6 +485,48 @@ function normalizeAiConfig(config) {
     };
   }
   return result;
+}
+
+function normalizeBackupProviders(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((item) => item && typeof item === "object" && item.baseUrl)
+    .map((item) => ({
+      id: String(item.id || item.label || item.baseUrl).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40),
+      label: String(item.label || item.id || "Backup").slice(0, 60),
+      baseUrl: String(item.baseUrl).replace(/\/$/, ""),
+      apiKey: typeof item.apiKey === "string" ? item.apiKey.trim() : "",
+      models: unique(Array.isArray(item.models) ? item.models.filter(Boolean).map(String) : []),
+    }))
+    .slice(0, 5);
+}
+
+// Strip every secret before a config object is sent to any client.
+function publicAiConfig(config) {
+  const safe = normalizeAiConfig(config);
+  const apiKey = safe.apiKey || "";
+  delete safe.apiKey;
+  safe.backupProviders = (safe.backupProviders || []).map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+    baseUrl: provider.baseUrl,
+    models: provider.models,
+    keyConfigured: Boolean(provider.apiKey),
+  }));
+  return { config: safe, apiKeyPreview: maskKey(apiKey), storedKeyConfigured: Boolean(apiKey) };
+}
+
+function maskKey(key) {
+  const value = String(key || "");
+  if (!value) return "";
+  if (value.length <= 8) return "••••";
+  return `${value.slice(0, 6)}…${value.slice(-4)}`;
+}
+
+// Single source of truth for which OpenRouter key a request should use.
+async function resolveOpenRouterKey(req, bodyApiKey, routing) {
+  const config = routing || await loadAiRoutingConfig();
+  return (req.headers["x-openrouter-key"] || bodyApiKey || config.apiKey || OPENROUTER_API_KEY || "").trim();
 }
 
 async function handleGetProperties(req, res) {
@@ -626,12 +699,12 @@ async function handleScrape(req, res) {
 async function handleOpenRouter(req, res) {
   const body = await readBody(req);
   const { apiKey, model, fallbackModels = null, functionType = "search", messages, temperature = 0.2, responseFormat = true } = JSON.parse(body || "{}");
-  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
   const routing = await loadAiRoutingConfig();
+  const effectiveApiKey = await resolveOpenRouterKey(req, apiKey, routing);
   const task = routing.functions?.[functionType] || routing.functions?.search || defaultAiConfig().functions.search;
   const effectiveModel = model || task.activeModel || DEFAULT_MODEL;
-  if (!effectiveApiKey) {
-    sendJson(res, 401, { error: "Falta API key de OpenRouter." });
+  if (!effectiveApiKey && !(routing.backupProviders || []).some((p) => p.apiKey)) {
+    sendJson(res, 401, { error: "Falta API key de OpenRouter. Un administrador debe configurarla en el panel de IA." });
     return;
   }
   if (!effectiveModel) {
@@ -648,13 +721,14 @@ async function handleOpenRouter(req, res) {
       .filter(Boolean),
   ]);
 
-  const result = await runOpenRouterCompletion({
+  const result = await runChatCompletion({
     apiKey: effectiveApiKey,
     models,
     messages,
     temperature,
     responseFormat,
     origin: req.headers.origin,
+    backupProviders: routing.backupProviders,
   });
   await persistAiHealth(functionType, result);
   if (!result.ok) {
@@ -669,18 +743,18 @@ async function handleOpenRouter(req, res) {
 }
 
 const SEARCH_STREAM_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
-  "meta-llama/llama-3.1-8b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
+  "openrouter/free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
 ];
 
 async function handleOpenRouterStream(req, res) {
   const body = await readBody(req);
   const { apiKey, messages, temperature = 0.1, max_tokens = 400 } = JSON.parse(body || "{}");
-  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
+  const effectiveApiKey = await resolveOpenRouterKey(req, apiKey);
   if (!effectiveApiKey) {
     res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Falta API key de OpenRouter." }));
+    res.end(JSON.stringify({ error: "Falta API key de OpenRouter. Un administrador debe configurarla en el panel de IA." }));
     return;
   }
   const origin = req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173";
@@ -733,22 +807,24 @@ async function handleOpenRouterStream(req, res) {
 async function handleOpenRouterTest(req, res) {
   const body = await readBody(req);
   const { apiKey, model, functionType = "search" } = JSON.parse(body || "{}");
-  const effectiveApiKey = req.headers["x-openrouter-key"] || apiKey || OPENROUTER_API_KEY;
+  const routing = await loadAiRoutingConfig();
+  const effectiveApiKey = await resolveOpenRouterKey(req, apiKey, routing);
   if (!effectiveApiKey) {
-    sendJson(res, 401, { error: "Falta API key de OpenRouter." });
+    sendJson(res, 401, { error: "Falta API key de OpenRouter. Un administrador debe configurarla en el panel de IA." });
     return;
   }
   if (!model) {
     sendJson(res, 400, { error: "Falta modelo para probar." });
     return;
   }
-  const result = await runOpenRouterCompletion({
+  const result = await runChatCompletion({
     apiKey: effectiveApiKey,
     models: [model],
     temperature: 0,
     responseFormat: true,
     origin: req.headers.origin,
     messages: buildAiTestMessages(functionType),
+    backupProviders: routing.backupProviders,
   });
   await persistAiHealth(functionType, result);
   if (!result.ok) {
@@ -770,22 +846,23 @@ async function handleAiHealth(req, res) {
     sendJson(res, 403, { error: "Solo admin puede ver health IA." });
     return;
   }
-  const effectiveApiKey = req.headers["x-openrouter-key"] || OPENROUTER_API_KEY;
+  const routing = await loadAiRoutingConfig();
+  const effectiveApiKey = await resolveOpenRouterKey(req, null, routing);
   if (!effectiveApiKey) {
-    sendJson(res, 200, { serverKeyConfigured: false, status: "error", tasks: {}, error: "Falta OPENROUTER_API_KEY." });
+    sendJson(res, 200, { serverKeyConfigured: false, status: "error", tasks: {}, error: "Falta API key de OpenRouter. Configurala en el panel de IA." });
     return;
   }
-  const routing = await loadAiRoutingConfig();
   const tasks = {};
   for (const functionType of ["search", "vision", "plan", "score"]) {
     const item = routing.functions?.[functionType] || defaultAiConfig().functions[functionType];
-    const result = await runOpenRouterCompletion({
+    const result = await runChatCompletion({
       apiKey: effectiveApiKey,
       models: [item.activeModel, ...(item.fallbacks || [])],
       temperature: 0,
       responseFormat: true,
       origin: req.headers.origin,
       messages: buildAiTestMessages(functionType),
+      backupProviders: routing.backupProviders,
     });
     await persistAiHealth(functionType, result);
     tasks[functionType] = result.ok
@@ -795,6 +872,44 @@ async function handleAiHealth(req, res) {
   const statuses = Object.values(tasks).map((task) => task.status);
   const status = statuses.includes("error") ? "error" : statuses.includes("fallback") ? "fallback" : "ok";
   sendJson(res, 200, { serverKeyConfigured: true, status, tasks });
+}
+
+// Live model discovery so the admin picker never goes stale. OpenRouter's
+// /models endpoint is public (no key needed). Cached for 10 minutes.
+let modelsCache = { at: 0, free: [], all: [] };
+async function handleListModels(req, res) {
+  const now = Date.now();
+  if (now - modelsCache.at < 10 * 60 * 1000 && modelsCache.all.length) {
+    sendJson(res, 200, { cached: true, ...modelsCache });
+    return;
+  }
+  try {
+    const response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/models`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      sendJson(res, 200, { cached: false, free: STABLE_TEXT_MODELS, all: STABLE_TEXT_MODELS, warning: `OpenRouter /models respondió ${response.status}` });
+      return;
+    }
+    const data = await response.json();
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    const mapped = rows.map((row) => {
+      const id = row.id || row.name;
+      const prompt = Number(row?.pricing?.prompt ?? 1);
+      const completion = Number(row?.pricing?.completion ?? 1);
+      const modalities = row?.architecture?.input_modalities || row?.architecture?.modality || [];
+      const vision = Array.isArray(modalities)
+        ? modalities.includes("image")
+        : String(modalities).includes("image");
+      return { id, free: prompt === 0 && completion === 0, vision, name: row.name || id };
+    }).filter((row) => row.id);
+    const all = mapped.map((row) => row.id);
+    const free = mapped.filter((row) => row.free).map((row) => row.id);
+    modelsCache = { at: now, free, all, vision: mapped.filter((r) => r.vision).map((r) => r.id), models: mapped };
+    sendJson(res, 200, { cached: false, ...modelsCache });
+  } catch (error) {
+    sendJson(res, 200, { cached: false, free: STABLE_TEXT_MODELS, all: STABLE_TEXT_MODELS, error: error.message });
+  }
 }
 
 function buildAiTestMessages(functionType) {
@@ -846,85 +961,113 @@ async function persistAiHealth(functionType, result) {
   }
 }
 
-async function runOpenRouterCompletion({ apiKey, models, messages, temperature = 0.2, responseFormat = true, origin }) {
-  const payload = { messages, temperature };
-  if (responseFormat) payload.response_format = { type: "json_object" };
+// One OpenAI-compatible /chat/completions call. Retries once without
+// response_format if the provider rejects JSON mode. Returns a normalized shape.
+async function attemptChatCompletion({ baseUrl, apiKey, model, messages, temperature, responseFormat, origin }) {
+  const endpoint = `${String(baseUrl).replace(/\/$/, "")}/chat/completions`;
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
+    "X-Title": "Owner Direct Demo",
+  };
+  const basePayload = { model, messages, temperature };
+  let payload = responseFormat ? { ...basePayload, response_format: { type: "json_object" } } : basePayload;
+  let response;
+  try {
+    response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
+  } catch (error) {
+    return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${error.message}` };
+  }
+  let text = await response.text();
+  // Some models reject json_object mode with a 400 — retry once in plain mode.
+  if (!response.ok && responseFormat && response.status === 400 && /response_format|json_object|json_schema/i.test(text)) {
+    try {
+      response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(basePayload) });
+      text = await response.text();
+    } catch (error) {
+      return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${error.message}` };
+    }
+  }
+  return { ok: response.ok, status: response.status, text };
+}
+
+// Tries the OpenRouter model chain, then any configured OpenAI-compatible backup
+// providers, until one succeeds. Free models churn, so a model the provider
+// rejects (400) is skipped and the next is tried automatically (self-healing).
+async function runChatCompletion({ apiKey, models, messages, temperature = 0.2, responseFormat = true, origin, backupProviders = [] }) {
+  const started = Date.now();
   const attemptedModels = [];
   const needsImageInput = messagesHaveImageInput(messages);
-  const candidates = unique(models.filter(Boolean))
+  const candidates = unique((models || []).filter(Boolean))
     .filter((model) => !UNSUPPORTED_CHAT_MODELS.has(String(model).toLowerCase()))
     .filter((model) => !needsImageInput || modelSupportsImageInput(model));
-  const started = Date.now();
-  let lastResponse = null;
-  let lastText = "";
-  if (!candidates.length) {
+  let lastStatus = 502;
+  let lastText = "Ningún modelo respondió.";
+
+  // 1) OpenRouter (free + paid, one key, aggregates many providers).
+  if (apiKey && candidates.length) {
+    for (const candidate of candidates) {
+      attemptedModels.push(candidate);
+      const attempt = await attemptChatCompletion({
+        baseUrl: OPENROUTER_BASE_URL, apiKey, model: candidate, messages, temperature, responseFormat, origin,
+      });
+      if (attempt.ok) {
+        const json = parseOpenRouterPayload(attempt.text);
+        const actualModel = openRouterActualModel(attempt.text) || candidate;
+        return {
+          ok: true, status: attempt.status, json, text: attempt.text,
+          meta: {
+            usedModel: candidate, provider: "openrouter",
+            routedModel: actualModel === candidate ? "" : actualModel,
+            attemptedModels, fallbackUsed: attemptedModels.length > 1, durationMs: Date.now() - started,
+          },
+        };
+      }
+      lastStatus = attempt.status;
+      lastText = attempt.text;
+      // Auth/credit problems won't improve across models — jump to backups.
+      if ([401, 402].includes(attempt.status)) break;
+    }
+  }
+
+  // 2) Backup providers (e.g. Groq free tier, OpenAI paid) — each its own key/url.
+  for (const provider of (backupProviders || [])) {
+    if (!provider.apiKey || !provider.baseUrl) continue;
+    const providerModels = unique((provider.models || []).filter(Boolean))
+      .filter((model) => !needsImageInput || modelSupportsImageInput(model));
+    for (const model of providerModels) {
+      const tag = `${provider.id}:${model}`;
+      attemptedModels.push(tag);
+      const attempt = await attemptChatCompletion({
+        baseUrl: provider.baseUrl, apiKey: provider.apiKey, model, messages, temperature, responseFormat, origin,
+      });
+      if (attempt.ok) {
+        const json = parseOpenRouterPayload(attempt.text);
+        return {
+          ok: true, status: attempt.status, json, text: attempt.text,
+          meta: {
+            usedModel: model, provider: provider.id,
+            attemptedModels, fallbackUsed: true, durationMs: Date.now() - started,
+          },
+        };
+      }
+      lastStatus = attempt.status;
+      lastText = attempt.text;
+      if ([401, 402].includes(attempt.status)) break;
+    }
+  }
+
+  if (!attemptedModels.length) {
     return {
-      ok: false,
-      status: 400,
-      text: "No hay modelos configurados que soporten image input.",
-      meta: { usedModel: null, attemptedModels: [], fallbackUsed: false, durationMs: 0 },
+      ok: false, status: 400,
+      text: needsImageInput ? "No hay modelos configurados que soporten imágenes." : "No hay modelos ni API key configurados.",
+      meta: { usedModel: null, attemptedModels: [], fallbackUsed: false, durationMs: Date.now() - started },
     };
   }
-  for (const candidate of candidates) {
-    attemptedModels.push(candidate);
-    let requestPayload = { ...payload, model: candidate };
-    let response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
-        "X-Title": "Owner Direct Demo",
-      },
-      body: JSON.stringify(requestPayload),
-    });
-    let text = await response.text();
-    if (!response.ok && responseFormat && response.status === 400 && /response_format|json_object|json_schema/i.test(text)) {
-      requestPayload = { ...payload, model: candidate };
-      delete requestPayload.response_format;
-      response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
-          "X-Title": "Owner Direct Demo",
-        },
-        body: JSON.stringify(requestPayload),
-      });
-      text = await response.text();
-    }
-    if (response.ok) {
-      const json = parseOpenRouterPayload(text);
-      const actualModel = openRouterActualModel(text) || candidate;
-      return {
-        ok: true,
-        status: response.status,
-        json,
-        text,
-        meta: {
-          usedModel: candidate,
-          routedModel: actualModel === candidate ? "" : actualModel,
-          attemptedModels,
-          fallbackUsed: attemptedModels.length > 1,
-          durationMs: Date.now() - started,
-        },
-      };
-    }
-    lastResponse = response;
-    lastText = text;
-    if ([401, 402].includes(response.status)) break;
-  }
   return {
-    ok: false,
-    status: lastResponse?.status || 502,
-    text: lastText,
-    meta: {
-      usedModel: null,
-      attemptedModels,
-      fallbackUsed: attemptedModels.length > 1,
-      durationMs: Date.now() - started,
-    },
+    ok: false, status: lastStatus || 502, text: lastText,
+    meta: { usedModel: null, attemptedModels, fallbackUsed: attemptedModels.length > 1, durationMs: Date.now() - started },
   };
 }
 
@@ -935,7 +1078,13 @@ function messagesHaveImageInput(messages = []) {
 function modelSupportsImageInput(model = "") {
   const value = String(model).toLowerCase();
   if (value === "openrouter/free") return true;
-  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma", "qwen-vl", "llava", "omni"].some((token) => value.includes(token));
+  // Prefer the live catalog's vision flag when we have it (set by /api/models).
+  if (Array.isArray(modelsCache.vision) && modelsCache.vision.length) {
+    if (modelsCache.vision.map((m) => String(m).toLowerCase()).includes(value)) return true;
+    if (modelsCache.all.map((m) => String(m).toLowerCase()).includes(value)) return false;
+  }
+  // Token fallback for models not in the cache.
+  return ["gpt-4o", "o4", "vision", "claude", "gemini", "gemma-3", "gemma-4", "-vl", "vl-", "llava", "omni", "pixtral", "internvl"].some((token) => value.includes(token));
 }
 
 function parseOpenRouterPayload(text) {
