@@ -113,7 +113,7 @@ const defaultState = {
       contribucionAnnual: "",
       primariaAnnual: "",
       insuranceAvg: "",
-      description: "Casa owner-direct con ficha tecnica, fotos, planos y score IA.",
+      description: "Casa con ficha tecnica verificada, fotos, planos y score IA.",
       rooms: [
         room("suite-principal", "Dormitorio principal", "Dormitorio", "PB", 18, "Suite principal + walking closet"),
         room("banio-suite", "Bano suite principal", "Bano", "PB", 4.9, "Bano completo con vanitory doble"),
@@ -1667,6 +1667,18 @@ function renderCostsBanner() {
   const property = selectedProperty();
   if (!banner || !property) return;
   banner.classList.toggle("hidden", costCompleteness(property) >= 0.6);
+  // Total mensual en vivo mientras el vendedor carga costos
+  const totalEl = $("#costsLiveTotal");
+  if (totalEl) {
+    const monthly = [property.uteAvg, property.oseAvg, property.antelAvg, property.commonFees, property.insuranceAvg]
+      .reduce((sum, v) => sum + (Number(v) || 0), 0);
+    const annual = [property.contribucionAnnual, property.primariaAnnual].reduce((sum, v) => sum + (Number(v) || 0), 0);
+    const full = monthly + annual / 12;
+    totalEl.textContent = full
+      ? `Costo mensual total para el comprador: ${formatUsd(Math.round(full))} (incluye anuales prorrateados)${property.costsEstimated ? " · incluye estimados" : ""}`
+      : "";
+  }
+  $("#costEstimateNote")?.classList.toggle("hidden", !property.costsEstimated);
 }
 
 const FORM_SECTIONS = {
@@ -2657,7 +2669,8 @@ function renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, do
     <div class="cost-layout">
       <div class="modal-section">
         <h3>Costos mensuales</h3>
-        <p class="trust-sub">Transparencia total de costos · Actualizado por el propietario</p>
+        <p class="trust-sub">Transparencia total de costos · ${property.costsEstimated ? "Declarado por el propietario" : "Actualizado por el propietario"}</p>
+        ${property.costsEstimated ? `<div class="costs-incomplete-banner">⚠ Estos costos fueron estimados según m², tipo y precio — todavía no están respaldados por facturas. Pedile al propietario los montos verificados antes de decidir.</div>` : ""}
         ${monthlyCosts.length ? `
           <div class="cost-bars">
             ${monthlyCosts.map(([label, value]) => `<div>
@@ -2666,7 +2679,7 @@ function renderCostosPanel(property, monthlyCosts, monthlyTotal, yearlyCosts, do
               <strong>${formatUsd(value)}</strong>
             </div>`).join("")}
           </div>
-          <div class="cost-total">Total estimado: <strong>${formatUsd(monthlyTotal)}</strong></div>
+          <div class="cost-total">Total ${property.costsEstimated ? "estimado (sin verificar)" : "mensual declarado"}: <strong>${formatUsd(monthlyTotal)}</strong></div>
         ` : `<p class="public-description">No hay costos mensuales declarados todavía.</p>`}
       </div>
       <div class="modal-section">
@@ -3211,6 +3224,7 @@ function updateSelectedFromForm() {
   property.lat = property.lat === "" ? "" : roundCoord(property.lat);
   property.lng = property.lng === "" ? "" : roundCoord(property.lng);
   hydrateCoordinatesFromMapUrl(property, form);
+  reconcileEstimatedCosts(property);
   saveState();
   renderSellerCompleteness();
   renderCostsBanner();
@@ -3508,7 +3522,7 @@ async function runPhotoAnalysis() {
       detail: canSeeImages ? `Analizando ${limitedPhotos.length} fotos con el modelo visual disponible.` : "El modelo actual no ve imágenes; uso metadata y datos cargados.",
       percent: 28,
     });
-    const promptText = `Analiza esta propiedad owner-direct y calcula un score tecnico-comercial de 0 a 10 usando datos cargados ${canSeeImages ? "y fotos." : "y metadata de fotos. El modelo configurado no esta marcado como vision, por lo que este es un score basico sin inspeccion visual directa."}
+    const promptText = `Analiza esta propiedad en mitti (venta directa por dueño) y calcula un score tecnico-comercial de 0 a 10 usando datos cargados ${canSeeImages ? "y fotos." : "y metadata de fotos. El modelo configurado no esta marcado como vision, por lo que este es un score basico sin inspeccion visual directa."}
 
 Devuelve JSON valido con esta forma exacta:
 {
@@ -3756,7 +3770,7 @@ function saveDraftProperty() {
   const user = currentUser();
   draft.ownerId = draft.ownerId || user?.id || "";
   draft.ownerEmail = draft.ownerEmail || user?.email || "";
-  draft.title = draft.title || "Nueva propiedad owner-direct";
+  draft.title = draft.title || "Nueva propiedad";
   ensurePropertyDefaults(draft);
   state.properties.unshift(draft);
   state.selectedId = draft.id;
@@ -3805,6 +3819,13 @@ function publishProperty(id, status = "published") {
   if (!property) return;
   property.status = status;
   state.selectedId = id;
+  // Toda publicación sale con al menos un score preliminar (sin IA) para que
+  // el comprador nunca vea una ficha sin señal de completitud.
+  if (status === "published" && !property.score) {
+    const analysis = computeBaseScore(property);
+    property.analysis = property.analysis || analysis;
+    property.score = analysis.global_score;
+  }
   saveState();
   renderAll();
   if (status === "published") {
@@ -3877,7 +3898,9 @@ async function runScrape() {
       detail: "Ya se scrapeó la publicación. Ahora copio datos, fotos, videos y atributos a esta propiedad.",
       percent: 48,
     });
+    const roomsBefore = selectedProperty().rooms.length;
     applyScrapedData(scraped);
+    const roomsCreated = selectedProperty().rooms.length - roomsBefore;
     $("#scrapeOutput").textContent = "Filtrando fotos importadas automáticamente...";
     setOperationProgress("#scrapeProgress", {
       title: "Filtrando fotos",
@@ -3902,7 +3925,7 @@ async function runScrape() {
     });
     $("#scrapeOutput").innerHTML = `
       <strong>Importación lista desde ${escapeHtml(scraped.platform || "link externo")}.</strong><br>
-      Se cargaron título, descripción, precio, ubicación, atributos, ${scraped.photos?.length || 0} fotos y ${scraped.videos?.length || 0} videos detectados.
+      Se cargaron título, descripción, precio, ubicación, atributos, ${scraped.photos?.length || 0} fotos y ${scraped.videos?.length || 0} videos detectados.${roomsCreated ? ` Se crearon ${roomsCreated} ambientes automáticamente desde dorm./baños y extras.` : ""}${selectedProperty().yearBuilt ? ` Año de construcción detectado: ${escapeHtml(String(selectedProperty().yearBuilt))}.` : ""}
       ${filterReport ? `<br>${escapeHtml(filterReport)}` : ""}
       ${review ? `<br><br><strong>Chequeo IA/coherencia:</strong><br>${escapeHtml(review)}` : ""}
       ${missing.length ? `<br><br><strong>Faltantes para pedir al propietario:</strong><br>${missing.map((item) => `- ${escapeHtml(item)}`).join("<br>")}` : "<br><br>La ficha básica quedó completa."}
@@ -3934,11 +3957,11 @@ function preparePropertyForScrape(url) {
   }
   const isBlank = !current.sourceUrl
     && !current.photos.length
-    && (!current.title || current.title === "Nueva propiedad owner-direct")
+    && (!current.title || current.title === "Nueva propiedad")
     && !current.price
     && !current.description;
   const alreadyImportedDifferentUrl = current.sourceUrl && current.sourceUrl !== url;
-  const hasMeaningfulData = current.photos.length || current.price || current.description || (current.title && current.title !== "Nueva propiedad owner-direct");
+  const hasMeaningfulData = current.photos.length || current.price || current.description || (current.title && current.title !== "Nueva propiedad");
   if (!isBlank && (alreadyImportedDifferentUrl || hasMeaningfulData)) {
     const property = createBlankProperty(uid("property"));
     property.sourceUrl = url;
@@ -3963,7 +3986,7 @@ async function validateScrapedProperty(property) {
     const chosenModel = modelForFunction("vision");
     const canSeeImages = modelQueueSupportsVision("vision");
     const photos = property.photos.slice(0, 12);
-    const prompt = `Revisá una ficha scrapeada para una plataforma owner-direct en Uruguay. Validá coherencia de precio, m² edificados, m² terreno, dormitorios, baños, barrio, fotos y descripciones. Si podés, segmentá fotos por ambiente. Devuelve JSON válido:
+    const prompt = `Revisá una ficha scrapeada para una plataforma mitti de venta directa por dueño en Uruguay. Validá coherencia de precio, m² edificados, m² terreno, dormitorios, baños, barrio, fotos y descripciones. Si podés, segmentá fotos por ambiente. Devuelve JSON válido:
 {
   "coherence_score": number,
   "summary": string,
@@ -4100,7 +4123,7 @@ async function sendChatMessage(text) {
       messages: [
         {
           role: "system",
-          content: `Sos un asesor inmobiliario owner-direct para Uruguay. Tu trabajo es conversar con compradores y recomendar zonas segun estilo de vida, presupuesto, colegios, seguridad percibida, espacios verdes, servicios, movilidad, conexion con Montevideo/Canelones/Punta del Este y potencial de reventa.
+          content: `Sos un asesor inmobiliario de mitti (venta directa por dueño) para Uruguay. Tu trabajo es conversar con compradores y recomendar zonas segun estilo de vida, presupuesto, colegios, seguridad percibida, espacios verdes, servicios, movilidad, conexion con Montevideo/Canelones/Punta del Este y potencial de reventa.
 
 No inventes datos hiperprecisos ni digas que consultaste mapas en tiempo real. Si falta informacion, hace 2 o 3 preguntas concretas. Responde siempre JSON valido:
 {
@@ -4569,8 +4592,28 @@ function estimateMonthlyCosts(property) {
     setIfEmpty("primariaAnnual", Math.round(price * 0.0018 / 50) * 50, "Primaria");
     setIfEmpty("insuranceAvg", round10(price * 0.0011 / 12), "Seguro");
   }
-  if (filled.length) property.costsEstimated = true;
+  if (filled.length) {
+    property.costsEstimated = true;
+    // Snapshot de valores estimados: si el vendedor cambia un campo a mano,
+    // ese campo deja de contar como estimado (ver reconcileEstimatedCosts).
+    property.estimatedCostValues = property.estimatedCostValues || {};
+    for (const field of ["uteAvg", "oseAvg", "antelAvg", "commonFees", "contribucionAnnual", "primariaAnnual", "insuranceAvg"]) {
+      if (filled.length && Number(property[field]) > 0 && !(field in property.estimatedCostValues)) {
+        property.estimatedCostValues[field] = Number(property[field]);
+      }
+    }
+  }
   return filled;
+}
+
+// Un campo estimado que el vendedor edita a mano pasa a ser dato declarado.
+function reconcileEstimatedCosts(property) {
+  if (!property.estimatedCostValues) return;
+  for (const [field, estimated] of Object.entries(property.estimatedCostValues)) {
+    if (Number(property[field]) !== estimated) delete property.estimatedCostValues[field];
+  }
+  property.costsEstimated = Object.keys(property.estimatedCostValues).length > 0;
+  if (!property.costsEstimated) delete property.estimatedCostValues;
 }
 
 // Score preliminar 0–10 SIN IA: mide qué tan completa y verificable es la
@@ -4865,7 +4908,7 @@ async function generateReport() {
         functionType: "score",
         messages: [{
           role: "user",
-          content: `Genera un informe comercial-tecnico breve para esta propiedad owner-direct. Devuelve JSON valido:
+          content: `Genera un informe comercial-tecnico breve para esta propiedad en mitti (venta directa por dueño). Devuelve JSON valido:
 {
   "title": string,
   "summary": string,

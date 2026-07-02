@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Owner Direct Demo</title>
+    <title>mitti — Vendé tu propiedad con control</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
@@ -13,10 +13,10 @@
   <body>
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">OD</div>
+        <div class="brand-mark">M</div>
         <div>
-          <strong>Owner Direct</strong>
-          <span>Venta directa verificada</span>
+          <strong>mitti</strong>
+          <span>Vendé tu propiedad con control</span>
         </div>
       </div>
       <button class="sidebar-toggle" id="sidebarToggle" title="Contraer menú">☰</button>
@@ -36,7 +36,7 @@
     <main class="shell">
       <nav class="pill-nav" id="pillNav" aria-label="Navegación principal">
         <div class="pill-nav-brand">
-          <span class="pill-nav-logo">Owner Direct</span>
+          <span class="pill-nav-logo">mitti</span>
           <span class="pill-nav-sub">Uruguay</span>
         </div>
         <div class="pill-nav-links" id="pillNavLinks">
@@ -53,7 +53,7 @@
       </div>
       <header class="topbar">
         <div>
-          <p class="eyebrow">Marketplace owner-direct</p>
+          <p class="eyebrow">Plataforma mitti</p>
           <h1 id="pageTitle">Portal cliente</h1>
         </div>
         <div class="top-actions">
@@ -72,7 +72,7 @@
             <div class="panel">
               <div class="panel-head">
                 <div>
-                  <p class="eyebrow">Owner Direct Uruguay</p>
+                  <p class="eyebrow">mitti · directo por dueño</p>
                   <h2>Encontrá la propiedad que <em>te imaginás</em>.</h2>
                   <div class="hero-trust-pills">
                     <span class="hero-trust-pill">Propiedades verificadas</span>
@@ -485,6 +485,7 @@
               <label>Primaria anual<input name="primariaAnnual" form="propertyForm" type="number" min="0" /></label>
               <label>Seguro hogar mensual<input name="insuranceAvg" form="propertyForm" type="number" min="0" /></label>
             </div>
+            <p id="costsLiveTotal" class="muted-light"></p>
             <div id="documentsList" class="stack document-list"></div>
           </div>
 

@@ -33,28 +33,32 @@ Respects honesty over hype.
 
 ## 3. Design language
 
-### 3.1 Color palette — "Sotheby's ledger" (shipped in styles.css)
+### 3.1 Color palette — mitti brand (shipped in styles.css)
 
-Light warm-editorial system: dark navy is a *stage* (hero, sidebar, chat head),
-warm cream is the page, gold is the single accent.
+Brand: **mitti** — "Vendé tu propiedad con control". Palette: grafito
+`#2B2E31` · arena `#E7DFCF` · verde seco `#6F7A67`. Light editorial system:
+grafito is a *stage* (hero, sidebar, chat head), arena claro is the page,
+verde seco is the single accent. Token NAMES are stable (`--night`, `--cream`,
+`--gold`…) — only values change on rebrands.
 
 | Token | Value | Use |
 |---|---|---|
-| `--night` | `#0A1420` | Dark stage: hero, sidebar, score card, chat head |
-| `--cream` | `#F8F5EF` | Page background |
+| `--night` | `#2B2E31` | Grafito stage: hero, sidebar, score card, chat head |
+| `--cream` | `#F2EEE4` | Page background (arena claro) |
 | `--paper` | `#FFFFFF` | Card surfaces |
-| `--sand` | `#F0EBE2` | Subtle fills, hover washes, tracks |
-| `--ink` | `#1A1008` | Primary text |
-| `--ink-soft` | `#5A4E3C` | Secondary text |
-| `--muted` | `#A89880` | Labels, captions |
-| `--cream-ink` | `#F5F0E8` | Text on dark |
-| `--gold` | `#C9A84C` | THE accent: CTAs, scores, active states |
-| `--line` | `#E8E0D0` | Borders, dividers |
-| `--ok` / `--warn` / `--bad` | `#4C8F6D` / `#C9862B` / `#B0483B` | Semantic states (use their `-wash` pairs for fills) |
+| `--sand` | `#E7DFCF` | Arena: fills, hover washes, tracks |
+| `--ink` | `#24272A` | Primary text (grafito) |
+| `--ink-soft` | `#52554E` | Secondary text |
+| `--muted` | `#8D8A7C` | Labels, captions |
+| `--cream-ink` | `#EFEBDF` | Text on dark |
+| `--gold` | `#6F7A67` | THE accent (verde seco): CTAs, scores, active states |
+| `--line` | `#DED7C5` | Borders, dividers |
+| `--ok` / `--warn` / `--bad` | `#4E8A66` / `#B4832F` / `#A85448` | Semantic states (use their `-wash` pairs for fills) |
 
-Never use `#000000`/`#FFFFFF` for text, never any blue. One accent family
-only: **gold**. All values live in the single `:root` of `styles.css` — a raw
-hex anywhere else is a defect.
+Wordmark "mitti" renders lowercase in DM Sans 500 with 0.14em tracking (never
+serif). Never use `#000000`/`#FFFFFF` for text, never any blue. One accent
+family only: **verde seco**. All values live in the single `:root` of
+`styles.css` — a raw hex anywhere else is a defect.
 
 ### 3.2 Typography
 

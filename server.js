@@ -164,7 +164,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Owner Direct demo: http://${HOST}:${PORT}`);
+  console.log(`mitti demo: http://${HOST}:${PORT}`);
 });
 
 function serveStatic(pathname, res) {
@@ -682,7 +682,7 @@ async function handleScrape(req, res) {
   const response = await fetch(target.href, {
     redirect: "follow",
     headers: {
-      "User-Agent": "Mozilla/5.0 OwnerDirectDemo/1.0",
+      "User-Agent": "Mozilla/5.0 MittiDemo/1.0",
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "es-UY,es;q=0.9,en;q=0.7",
     },
@@ -769,7 +769,7 @@ async function handleOpenRouterStream(req, res) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${effectiveApiKey}`,
           "HTTP-Referer": origin,
-          "X-Title": "Owner Direct Demo",
+          "X-Title": "mitti",
         },
         body: JSON.stringify({ model, messages, temperature, max_tokens, stream: true }),
       });
@@ -969,7 +969,7 @@ async function attemptChatCompletion({ baseUrl, apiKey, model, messages, tempera
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
     "HTTP-Referer": origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173",
-    "X-Title": "Owner Direct Demo",
+    "X-Title": "mitti",
   };
   const basePayload = { model, messages, temperature };
   let payload = responseFormat ? { ...basePayload, response_format: { type: "json_object" } } : basePayload;
@@ -1269,7 +1269,7 @@ async function readMercadoLibreEnrichment(url, html) {
   try {
     const response = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
       headers: {
-        "User-Agent": "Mozilla/5.0 OwnerDirectDemo/1.0",
+        "User-Agent": "Mozilla/5.0 MittiDemo/1.0",
         Accept: "application/json",
       },
     });

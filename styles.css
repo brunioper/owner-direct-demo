@@ -8,33 +8,36 @@
 /* ── 01 · TOKENS ───────────────────────────────────────────────────── */
 
 :root {
+  /* ── mitti brand palette: grafito #2B2E31 · arena #E7DFCF · verde seco #6F7A67
+     Token names kept stable (--night/--cream/--gold…) — only values changed. */
   /* canvas */
-  --night: #0A1420;
-  --night-2: #0D1B2A;
-  --cream: #F8F5EF;
+  --night: #2B2E31;   /* grafito — dark stage */
+  --night-2: #383C40;
+  --cream: #F2EEE4;   /* arena claro — page background */
   --paper: #FFFFFF;
-  --sand: #F0EBE2;
+  --sand: #E7DFCF;    /* arena — fills, tracks, washes */
   /* ink */
-  --ink: #1A1008;
-  --ink-soft: #5A4E3C;
-  --muted: #A89880;
-  --faint: #C8BCA8;
-  --cream-ink: #F5F0E8;
-  /* accent */
-  --gold: #C9A84C;
-  --gold-deep: #B8973B;
-  --gold-wash: rgba(201, 168, 76, 0.12);
+  --ink: #24272A;     /* grafito text */
+  --ink-soft: #52554E;
+  --muted: #8D8A7C;
+  --faint: #BCB7A6;
+  --cream-ink: #EFEBDF;
+  /* accent — verde seco (single accent family) */
+  --gold: #6F7A67;
+  --gold-deep: #5C6754;
+  --gold-light: #B7C1AC; /* verde claro — accent ON DARK stages (grafito) */
+  --gold-wash: rgba(111, 122, 103, 0.14);
   /* lines */
-  --line: #E8E0D0;
-  --line-soft: #F0EBE2;
-  --line-dark: rgba(201, 168, 76, 0.25);
+  --line: #DED7C5;
+  --line-soft: #EAE4D5;
+  --line-dark: rgba(111, 122, 103, 0.35);
   /* semantics */
-  --ok: #4C8F6D;
-  --ok-wash: rgba(76, 143, 109, 0.12);
-  --warn: #C9862B;
-  --warn-wash: rgba(201, 134, 43, 0.12);
-  --bad: #B0483B;
-  --bad-wash: rgba(176, 72, 59, 0.10);
+  --ok: #4E8A66;
+  --ok-wash: rgba(78, 138, 102, 0.12);
+  --warn: #B4832F;
+  --warn-wash: rgba(180, 131, 47, 0.12);
+  --bad: #A85448;
+  --bad-wash: rgba(168, 84, 72, 0.10);
   /* type */
   --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-sans: 'DM Sans', -apple-system, 'Segoe UI', sans-serif;
@@ -49,9 +52,9 @@
   --r-tight: 2px;
   --r-pill: 999px;
   /* elevation (warm-tinted) */
-  --e1: 0 1px 3px rgba(26, 16, 8, 0.07), 0 4px 14px rgba(26, 16, 8, 0.04);
-  --e2: 0 12px 48px rgba(26, 16, 8, 0.13);
-  --e3: 0 24px 80px rgba(26, 16, 8, 0.22);
+  --e1: 0 1px 3px rgba(36, 39, 42, 0.07), 0 4px 14px rgba(36, 39, 42, 0.04);
+  --e2: 0 12px 48px rgba(36, 39, 42, 0.13);
+  --e3: 0 24px 80px rgba(36, 39, 42, 0.22);
   /* motion */
   --fast: 160ms ease-out;
   --smooth: 350ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -343,17 +346,19 @@ dialog::backdrop { background: rgba(10, 20, 32, 0.55); }
   display: grid;
   place-items: center;
   background: var(--gold);
-  color: var(--ink);
-  font-family: var(--font-serif);
-  font-size: 17px;
+  color: var(--cream-ink);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 16px;
   border-radius: var(--r-tight);
   flex-shrink: 0;
 }
 .brand strong {
   display: block;
-  font-family: var(--font-serif);
-  font-size: 19px;
-  font-weight: 400;
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   line-height: 1.1;
 }
 .brand span {
@@ -387,8 +392,8 @@ dialog::backdrop { background: rgba(10, 20, 32, 0.55); }
   text-transform: uppercase;
   padding: 11px 14px;
 }
-.nav-btn:hover { background: rgba(245, 240, 232, 0.06); color: var(--cream-ink); border-color: transparent; border-left-color: rgba(201, 168, 76, 0.4); }
-.nav-btn.active { background: rgba(201, 168, 76, 0.1); color: var(--gold); border-left-color: var(--gold); }
+.nav-btn:hover { background: rgba(245, 240, 232, 0.06); color: var(--cream-ink); border-color: transparent; border-left-color: rgba(111, 122, 103, 0.4); }
+.nav-btn.active { background: rgba(111, 122, 103, 0.16); color: var(--gold-light); border-left-color: var(--gold-light); }
 
 .sidebar-card {
   margin-top: auto;
@@ -476,7 +481,7 @@ body[data-view="marketplace"] .shell { padding: 0; min-height: 100vh; }
   flex-wrap: wrap;
   padding: 20px 24px;
   border-bottom: 1px solid var(--line-soft);
-  background: linear-gradient(to bottom, rgba(201, 168, 76, 0.04), transparent);
+  background: linear-gradient(to bottom, rgba(111, 122, 103, 0.04), transparent);
 }
 .panel-head h2 { font-size: var(--t-title); }
 .panel-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -516,7 +521,8 @@ body[data-view="marketplace"] .shell { padding: 0; min-height: 100vh; }
 body[data-view="marketplace"] .pill-nav { display: flex; }
 
 .pill-nav-brand { display: flex; flex-direction: column; line-height: 1.05; }
-.pill-nav-logo { font-family: var(--font-serif); font-size: 17px; color: var(--ink); }
+/* wordmark "mitti": lowercase geometric sans per brand board */
+.pill-nav-logo { font-family: var(--font-sans); font-size: 16px; font-weight: 500; letter-spacing: 0.14em; color: var(--ink); }
 .pill-nav-sub {
   font-size: 9px;
   letter-spacing: 0.2em;
@@ -590,7 +596,7 @@ body[data-view="marketplace"] .pill-nav { display: flex; }
   pointer-events: none;
 }
 #view-marketplace .panel-head > div { position: relative; }
-#view-marketplace .panel-head .eyebrow { color: rgba(201, 168, 76, 0.65); letter-spacing: 0.3em; margin-bottom: 24px; }
+#view-marketplace .panel-head .eyebrow { color: rgba(183, 193, 172, 0.8); letter-spacing: 0.3em; margin-bottom: 24px; }
 #view-marketplace .panel-head h2 {
   font-size: var(--t-hero);
   font-weight: 300;
@@ -600,7 +606,7 @@ body[data-view="marketplace"] .pill-nav { display: flex; }
   max-width: 14ch;
   margin-bottom: 32px;
 }
-#view-marketplace .panel-head h2 em { font-style: italic; color: rgba(201, 168, 76, 0.88); }
+#view-marketplace .panel-head h2 em { font-style: italic; color: var(--gold-light); }
 
 .hero-trust-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .hero-trust-pill {
@@ -978,8 +984,8 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
-.card-badge-status.status-reservado { background: rgba(201, 168, 76, 0.92); }
-.card-badge-status.status-vendido { background: rgba(26, 16, 8, 0.82); color: rgba(245, 240, 232, 0.8); }
+.card-badge-status.status-reservado { background: rgba(111, 122, 103, 0.92); color: var(--cream-ink); }
+.card-badge-status.status-vendido { background: rgba(36, 39, 42, 0.82); color: rgba(245, 240, 232, 0.8); }
 .card-badge-score {
   bottom: 12px;
   right: 12px;
@@ -1540,7 +1546,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .neighborhood-card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .neighborhood-card-name { font-family: var(--font-serif); font-size: 24px; }
 .neighborhood-card-city { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245, 240, 232, 0.5); }
-.neighborhood-avg-m2 { color: var(--gold); font-weight: 500; }
+.neighborhood-avg-m2 { color: var(--gold-light); font-weight: 500; }
 .neighborhood-description { font-size: 13px; color: rgba(245, 240, 232, 0.75); line-height: 1.6; margin-top: 10px; }
 .neighborhood-features { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .neighborhood-feature-pill {
@@ -1585,7 +1591,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   height: 54px;
   border-radius: 50%;
   background: var(--ink);
-  color: var(--gold);
+  color: var(--gold-light);
   border: 1px solid var(--ink);
   font-family: var(--font-serif);
   font-size: 18px;
@@ -1618,7 +1624,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   background: var(--night);
   color: var(--cream-ink);
 }
-.chat-widget-eyebrow { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(201, 168, 76, 0.7); margin: 0; }
+.chat-widget-eyebrow { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(183, 193, 172, 0.85); margin: 0; }
 .chat-widget-title { font-size: 19px; color: var(--cream-ink); }
 .chat-widget-head button { border-color: rgba(245, 240, 232, 0.25); color: rgba(245, 240, 232, 0.7); min-height: 30px; padding: 4px 12px; }
 .chat-widget-head button:hover { background: rgba(245, 240, 232, 0.12); color: var(--cream-ink); }
@@ -1946,7 +1952,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   border-radius: var(--r-card);
   padding: 20px 24px;
 }
-.score-card .score-value { font-family: var(--font-serif); font-size: 44px; font-weight: 300; color: var(--gold); line-height: 1; }
+.score-card .score-value { font-family: var(--font-serif); font-size: 44px; font-weight: 300; color: var(--gold-light); line-height: 1; }
 .score-card .bar-row { color: rgba(245, 240, 232, 0.75); }
 .score-card .bar { background: rgba(245, 240, 232, 0.12); }
 
@@ -2067,7 +2073,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .model-summary-card small { color: var(--ink-soft); font-size: 11px; word-break: break-word; }
 .model-summary-card em { color: var(--muted); font-style: normal; font-size: 10px; }
 .model-summary-card.system { background: var(--night); color: var(--cream-ink); border-color: var(--night); }
-.model-summary-card.system strong { color: var(--gold); }
+.model-summary-card.system strong { color: var(--gold-light); }
 .model-summary-card.system small, .model-summary-card.system em { color: rgba(245, 240, 232, 0.65); }
 
 .model-status {
