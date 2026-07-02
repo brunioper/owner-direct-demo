@@ -1432,7 +1432,10 @@ function publicAiExplanation(text = "") {
     .replace(/Falta API key de IA\./gi, "La IA no está configurada todavía.")
     .replace(/\s*\(fallback\)\.?/gi, "")
     .trim();
-  if (/No pude usar IA|No endpoints|Failed to fetch|Provider returned|rate-limited|API key|401|402|429|500|502|503|504/i.test(clean)) {
+  // Los resultados del matcher local son aptos para el público tal cual.
+  if (/^(Búsqueda por criterios|Ninguna propiedad|Mostrando coincidencias|Criterios:)/i.test(clean)) return clean;
+  // Códigos HTTP solo cuentan como error con contexto — un precio "USD 500.000" no es un status 500.
+  if (/No pude usar IA|No endpoints|Failed to fetch|Provider returned|rate-limited|API key|(?:error|status|respondi[oó])\s*[:#]?\s*(?:401|402|429|500|502|503|504)\b/i.test(clean)) {
     return "La IA no pudo completar el análisis esta vez. Dejé visibles las propiedades publicadas para que puedas seguir explorando.";
   }
   return clean;
@@ -4150,22 +4153,141 @@ function formatAssistantAnswer(result) {
   return parts.filter(Boolean).join("\n\n");
 }
 
+/* ── Local structured search ─────────────────────────────────────────
+   Parses buyer intent (price caps, dormitorios, baños, tipo, barrio,
+   features) and ranks properties deterministically. Used as the AI
+   pre-filter AND as a full fallback so search works without any API key. */
+
+const SEARCH_FEATURES = [
+  { key: "parrillero", words: ["parrillero", "parrilla", "barbacoa", "bbq"] },
+  { key: "piscina", words: ["piscina", "pileta"] },
+  { key: "jardín", words: ["jardin", "cesped", "parque propio"] },
+  { key: "garaje", words: ["garaje", "garage", "cochera"] },
+  { key: "terraza", words: ["terraza", "balcon", "azotea", "rooftop"] },
+  { key: "patio", words: ["patio", "fondo"] },
+  { key: "vista", words: ["vista al mar", "vista despejada", "vistas", "vista"] },
+  { key: "amueblado", words: ["amueblado", "amoblado"] },
+  { key: "seguridad", words: ["seguridad", "vigilancia", "barrio privado", "barrio cerrado"] },
+  { key: "luminoso", words: ["luminoso", "luminosa", "luz natural"] },
+];
+
+const SEARCH_TYPE_MAP = {
+  casa: "Casa", casas: "Casa",
+  apartamento: "Apartamento", apartamentos: "Apartamento", apto: "Apartamento", aptos: "Apartamento",
+  departamento: "Apartamento", depto: "Apartamento", monoambiente: "Apartamento",
+  terreno: "Terreno", terrenos: "Terreno", lote: "Terreno",
+  chacra: "Chacra", chacras: "Chacra",
+  local: "Local", locales: "Local",
+};
+
+function normalizeSearchText(value = "") {
+  return String(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function parseSearchIntent(query = "") {
+  const q = normalizeSearchText(query);
+  const intent = { maxPrice: null, minPrice: null, minBeds: 0, minBaths: 0, type: null, features: [], barrioTokens: [] };
+
+  // price: "hasta 400k", "menos de 500 mil", "por 350000", "usd 400.000"
+  const capMatch = q.match(/(?:hasta|menos de|max(?:imo)?|tope de?|por debajo de)\s*(?:usd?\s*)?([\d.]+)\s*(k|mil)?/);
+  const floorMatch = q.match(/(?:desde|mas de|min(?:imo)?|a partir de)\s*(?:usd?\s*)?([\d.]+)\s*(k|mil)?/);
+  const looseK = q.match(/\b([\d.]+)\s*(?:k|mil)\b/);
+  const looseUsd = q.match(/\busd?\s*\$?\s*([\d][\d.]{3,})\b/);
+  const toUsd = (raw, unit) => {
+    const n = parseFloat(String(raw).replace(/\.(?=\d{3})/g, ""));
+    return Number.isFinite(n) ? (unit ? n * 1000 : n) : null;
+  };
+  if (capMatch) intent.maxPrice = toUsd(capMatch[1], capMatch[2]);
+  if (floorMatch) intent.minPrice = toUsd(floorMatch[1], floorMatch[2]);
+  if (!intent.maxPrice && !intent.minPrice) {
+    if (looseK) intent.maxPrice = toUsd(looseK[1], "k");
+    else if (looseUsd) intent.maxPrice = toUsd(looseUsd[1], null);
+  }
+
+  const bedMatch = q.match(/(\d+)\s*(?:\+\s*)?(?:dorm(?:itorios?)?|habitacion(?:es)?|hab\b|cuartos?)/);
+  if (bedMatch) intent.minBeds = parseInt(bedMatch[1]);
+  const bathMatch = q.match(/(\d+)\s*(?:\+\s*)?ban(?:os?|ios?)/);
+  if (bathMatch) intent.minBaths = parseInt(bathMatch[1]);
+
+  for (const [word, type] of Object.entries(SEARCH_TYPE_MAP)) {
+    if (new RegExp(`\\b${word}\\b`).test(q)) { intent.type = type; break; }
+  }
+  for (const feature of SEARCH_FEATURES) {
+    if (feature.words.some((w) => q.includes(w))) intent.features.push(feature);
+  }
+
+  // barrio candidates: significant words not consumed by other criteria
+  const stop = new Set(["casa", "casas", "apartamento", "apto", "depto", "departamento", "terreno", "chacra", "local", "monoambiente",
+    "con", "sin", "de", "en", "el", "la", "los", "las", "un", "una", "y", "o", "que", "para", "por", "cerca", "zona", "barrio",
+    "hasta", "desde", "menos", "mas", "usd", "dolares", "mil", "grande", "amplia", "amplio", "moderna", "moderno", "linda", "lindo",
+    "dormitorios", "dormitorio", "banos", "bano", "habitaciones", "cuartos", "metros", "m2", "buena", "buen", "bien"]);
+  const featureWords = new Set(SEARCH_FEATURES.flatMap((f) => f.words.flatMap((w) => w.split(" "))));
+  intent.barrioTokens = q.replace(/[.,;:!?]/g, " ").split(/\s+/)
+    .filter((w) => w.length >= 3 && !stop.has(w) && !featureWords.has(w) && !/^\d/.test(w));
+  return intent;
+}
+
+function propertySearchHaystack(p) {
+  return normalizeSearchText([
+    p.title, p.description, p.neighborhood, p.city, p.type,
+    (p.extras || []).map((e) => `${e.label || ""} ${e.value || ""}`).join(" "),
+    (p.rooms || []).map((r) => `${r.name || ""} ${r.notes || ""}`).join(" "),
+  ].filter(Boolean).join(" "));
+}
+
+function localSearchMatch(query, properties) {
+  const intent = parseSearchIntent(query);
+  const criteria = [];
+  if (intent.maxPrice) criteria.push(`hasta USD ${Math.round(intent.maxPrice).toLocaleString("es-UY")}`);
+  if (intent.minPrice) criteria.push(`desde USD ${Math.round(intent.minPrice).toLocaleString("es-UY")}`);
+  if (intent.minBeds) criteria.push(`${intent.minBeds}+ dorm.`);
+  if (intent.minBaths) criteria.push(`${intent.minBaths}+ baños`);
+  if (intent.type) criteria.push(intent.type.toLowerCase());
+  intent.features.forEach((f) => criteria.push(f.key));
+
+  const scored = properties.map((p) => {
+    // hard filters
+    if (intent.maxPrice && Number(p.price) > intent.maxPrice * 1.05) return null;
+    if (intent.minPrice && Number(p.price) < intent.minPrice * 0.95) return null;
+    if (intent.minBeds && (Number(p.bedrooms) || 0) < intent.minBeds) return null;
+    if (intent.minBaths && (Number(p.bathrooms) || 0) < intent.minBaths) return null;
+    if (intent.type && normalizePropertyType(p.type) !== intent.type) return null;
+    // soft relevance
+    const hay = propertySearchHaystack(p);
+    let score = 1;
+    let barrioHit = false;
+    const barrio = normalizeSearchText(`${p.neighborhood || ""} ${p.city || ""}`);
+    for (const token of intent.barrioTokens) {
+      if (barrio.includes(token)) { score += 4; barrioHit = true; }
+      else if (hay.includes(token)) score += 1;
+    }
+    for (const feature of intent.features) {
+      if (feature.words.some((w) => hay.includes(w))) score += 2;
+    }
+    if (intent.maxPrice && Number(p.price)) score += Math.max(0, 1 - Number(p.price) / intent.maxPrice);
+    return { id: p.id, score, barrioHit };
+  }).filter(Boolean);
+
+  // If the buyer named a barrio and some properties match it, prefer those.
+  const barrioMatches = scored.filter((s) => s.barrioHit);
+  const pool = intent.barrioTokens.length && barrioMatches.length ? barrioMatches : scored;
+  pool.sort((a, b) => b.score - a.score);
+  return {
+    ids: pool.map((s) => s.id),
+    criteria,
+    hasCriteria: criteria.length > 0 || intent.barrioTokens.length > 0,
+    explanation: criteria.length
+      ? `Criterios: ${criteria.join(" · ")} — ${pool.length} coincidencia${pool.length === 1 ? "" : "s"}.`
+      : `${pool.length} propiedad${pool.length === 1 ? "" : "es"} para "${query}".`,
+  };
+}
+
 function preFilterForSearch(properties, query) {
   if (!query) return properties;
-  const q = query.toLowerCase();
-  const milMatch = q.match(/(\d[\d.]*)[\s]*(?:mil|k)(?:\s|$)/);
-  const plainMatch = q.match(/\busd?\s*(\d{4,})\b/);
-  let maxPrice = Infinity;
-  if (milMatch) maxPrice = parseFloat(milMatch[1]) * 1000;
-  else if (plainMatch) maxPrice = parseInt(plainMatch[1]);
-  const bedMatch = q.match(/(\d+)\s*(?:dorm(?:itorios?)?|hab(?:itaciones?)?|cuartos?)/);
-  const minBeds = bedMatch ? parseInt(bedMatch[1]) : 0;
-  const filtered = properties.filter((p) => {
-    if (maxPrice < Infinity && p.price > maxPrice * 1.1) return false;
-    if (minBeds > 0 && (p.bedrooms || 0) < minBeds) return false;
-    return true;
-  });
-  return filtered.length >= 1 ? filtered : properties;
+  const local = localSearchMatch(query, properties);
+  if (!local.ids.length) return properties;
+  const byId = new Map(properties.map((p) => [p.id, p]));
+  return local.ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
 function buildSearchPrompt(query, summaries) {
@@ -4276,21 +4398,38 @@ async function runAiPropertySearch(saveToHistory = true) {
     }
     const result = parseLooseJson(accumulated) || {};
     const validIds = new Set(source.map((p) => p.id));
-    state.aiSearchIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
-    state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
+    const aiIds = (Array.isArray(result.matching_ids) ? result.matching_ids : []).filter((id) => validIds.has(id));
+    if (aiIds.length) {
+      state.aiSearchIds = aiIds;
+      state.aiSearchExplanation = result.explanation || `Filtro IA aplicado: ${query || "imagen de referencia"}`;
+    } else {
+      // La IA no devolvió coincidencias — verificar el matcher local antes de mostrar cero.
+      const local = localSearchMatch(query, source);
+      if (local.ids.length && local.hasCriteria) {
+        state.aiSearchIds = local.ids;
+        state.aiSearchExplanation = `${result.explanation ? result.explanation + " " : ""}Mostrando coincidencias por criterios. ${local.explanation}`;
+      } else {
+        state.aiSearchIds = [];
+        state.aiSearchExplanation = result.explanation || "Ninguna propiedad coincide con esa búsqueda.";
+      }
+    }
     state.clientPage = 0;
     saveState();
     renderMarketplace();
   } catch (error) {
-    const fallback = query.toLowerCase();
+    // IA no disponible — el matcher estructurado local mantiene la búsqueda funcional.
     const source = state.properties.filter((p) => p.status === "published");
-    const fallbackIds = source
-      .filter((p) => `${p.title} ${p.neighborhood} ${p.city} ${p.description} ${JSON.stringify(p.extras || [])}`.toLowerCase().includes(fallback))
-      .map((p) => p.id);
-    state.aiSearchIds = fallbackIds.length ? fallbackIds : null;
-    state.aiSearchExplanation = fallbackIds.length
-      ? `No pude usar IA (${error.message}). Apliqué búsqueda textual sobre las fichas publicadas.`
-      : `No pude usar IA (${error.message}). No apliqué filtro para no ocultar las propiedades publicadas.`;
+    const local = localSearchMatch(query, source);
+    if (query && local.ids.length) {
+      state.aiSearchIds = local.ids;
+      state.aiSearchExplanation = `Búsqueda por criterios (IA no disponible). ${local.explanation}`;
+    } else if (query && local.hasCriteria) {
+      state.aiSearchIds = [];
+      state.aiSearchExplanation = `Ninguna propiedad publicada cumple: ${local.criteria.join(" · ") || query}.`;
+    } else {
+      state.aiSearchIds = null;
+      state.aiSearchExplanation = `No pude usar IA (${error.message}). Muestro todas las propiedades publicadas.`;
+    }
     saveState();
     renderMarketplace();
   } finally {
@@ -4376,6 +4515,182 @@ function bindClientDetailEvents() {
   });
 }
 
+/* ── Editor productivity helpers ────────────────────────────────────── */
+
+// Crea living, cocina, dormitorios y baños a partir de los conteos cargados.
+// No duplica: salta ambientes cuyo nombre ya existe.
+function generateRoomsFromCounts(property, { fromExtras = true } = {}) {
+  // Dedup semántico: "Living + comedor" ya cuenta como living, "Baño suite" como baño.
+  const roomNames = () => (property.rooms || []).map((r) => normalizeSearchText(r.name));
+  const countLike = (word) => roomNames().filter((n) => n.includes(word)).length;
+  const push = (name, type, notes = "") => {
+    property.rooms.push(room(uid("room"), name, type, "Sin planta", "", notes));
+    return 1;
+  };
+  let created = 0;
+  if (!countLike("living") && !countLike("estar")) created += push("Living", "living");
+  if (!countLike("cocina")) created += push("Cocina", "cocina");
+  const beds = Math.min(Number(property.bedrooms) || 0, 8);
+  const haveBeds = countLike("dormitorio") + countLike("cuarto");
+  for (let i = haveBeds + 1; i <= beds; i++) created += push(beds === 1 ? "Dormitorio" : `Dormitorio ${i}`, "dormitorio");
+  const baths = Math.min(Math.ceil(Number(property.bathrooms) || 0), 6);
+  const haveBaths = countLike("bano") + countLike("toilette");
+  for (let i = haveBaths + 1; i <= baths; i++) created += push(baths === 1 ? "Baño" : `Baño ${i}`, "bano");
+  if (fromExtras) {
+    const hay = propertySearchHaystack(property);
+    if (/parrillero|barbacoa/.test(hay) && !countLike("parrillero")) created += push("Parrillero", "exterior", "Detectado en la publicación");
+    if (/garaje|garage|cochera/.test(hay) && !countLike("garaje") && !countLike("cochera")) created += push("Garaje", "garaje", "Detectado en la publicación");
+    if (/piscina|pileta/.test(hay) && !countLike("piscina") && !countLike("pileta")) created += push("Piscina", "exterior", "Detectado en la publicación");
+    if (/terraza|azotea/.test(hay) && !countLike("terraza")) created += push("Terraza", "exterior", "Detectado en la publicación");
+    if (Number(property.landArea) > Number(property.builtArea || 0) * 1.5 && !countLike("jardin")) created += push("Jardín", "exterior");
+  }
+  return created;
+}
+
+// Estimación determinística de costos mensuales/anuales de Uruguay según
+// m², tipo y precio. Solo completa campos VACÍOS — nunca pisa datos reales.
+function estimateMonthlyCosts(property) {
+  const built = Number(property.builtArea) || Number(property.landArea) * 0.25 || 100;
+  const price = Number(property.price) || 0;
+  const isApartment = normalizePropertyType(property.type) === "Apartamento";
+  const round10 = (v) => Math.max(10, Math.round(v / 10) * 10);
+  const filled = [];
+  const setIfEmpty = (field, value, label) => {
+    if (property[field] !== "" && property[field] !== null && property[field] !== undefined && Number(property[field]) > 0) return;
+    property[field] = value;
+    filled.push(label);
+  };
+  setIfEmpty("uteAvg", round10(45 + built * 0.55), "UTE");
+  setIfEmpty("oseAvg", round10(18 + built * 0.12), "OSE");
+  setIfEmpty("antelAvg", 40, "Antel");
+  if (isApartment) setIfEmpty("commonFees", round10(80 + built * 0.9), "Gastos comunes");
+  if (price) {
+    setIfEmpty("contribucionAnnual", Math.round(price * 0.0055 / 50) * 50, "Contribución");
+    setIfEmpty("primariaAnnual", Math.round(price * 0.0018 / 50) * 50, "Primaria");
+    setIfEmpty("insuranceAvg", round10(price * 0.0011 / 12), "Seguro");
+  }
+  if (filled.length) property.costsEstimated = true;
+  return filled;
+}
+
+// Score preliminar 0–10 SIN IA: mide qué tan completa y verificable es la
+// ficha (datos, fotos, costos, documentación). No evalúa calidad edilicia —
+// eso queda para el análisis IA/arquitecto — y lo dice explícitamente.
+function computeBaseScore(property) {
+  const notes = [];
+  // Datos (0–10): campos núcleo que todo comprador filtra
+  const coreFields = [property.price, property.builtArea, property.bedrooms, property.bathrooms, property.neighborhood, property.type];
+  const dataPts = coreFields.filter((v) => v !== "" && v !== null && v !== undefined && v !== 0).length / coreFields.length * 8
+    + Math.min((property.description || "").length / 300, 1) * 2;
+  if ((property.description || "").length < 120) notes.push("Sumá una descripción de al menos 3 líneas.");
+  // Fotos (0–10)
+  const photoCount = (property.photos || []).filter((p) => photoSrc(p)).length;
+  const photoPts = Math.min(photoCount / 10, 1) * 8 + ((property.plans || []).length ? 2 : 0);
+  if (photoCount < 8) notes.push(`Cargá ${8 - photoCount} foto${photoCount === 7 ? "" : "s"} más (mínimo recomendado: 8).`);
+  if (!(property.plans || []).length) notes.push("Un plano aprobado sube la confianza del comprador.");
+  // Costos (0–10)
+  const costFields = [property.uteAvg, property.oseAvg, property.antelAvg, property.commonFees, property.contribucionAnnual, property.insuranceAvg];
+  const costsLoaded = costFields.filter((v) => Number(v) > 0).length;
+  const costPts = costsLoaded / costFields.length * 10 * (property.costsEstimated ? 0.7 : 1);
+  if (costsLoaded < 4) notes.push("Completá los costos mensuales — es la sección que más conversión genera.");
+  else if (property.costsEstimated) notes.push("Reemplazá los costos estimados por montos de facturas reales.");
+  // Documentación (0–10)
+  const docs = verifiedDocumentTypes(property).length;
+  const docPts = Math.min(docs / 4, 1) * 7 + ((property.rooms || []).length >= 4 ? 3 : (property.rooms || []).length * 0.75);
+  if (docs < 2) notes.push("Subí facturas/documentos verificables (UTE, contribución, plano).");
+  if ((property.rooms || []).length < 4) notes.push("Detallá los ambientes — usá \"Generar según dorm./baños\".");
+
+  const categories = {
+    datos: Math.round(dataPts * 10) / 10,
+    fotos: Math.round(photoPts * 10) / 10,
+    costos_verificables: Math.round(costPts * 10) / 10,
+    documentacion: Math.round(docPts * 10) / 10,
+  };
+  const global = Math.round((dataPts * 0.3 + photoPts * 0.3 + costPts * 0.2 + docPts * 0.2) * 10) / 10;
+  return {
+    global_score: global,
+    categories,
+    preliminary: true,
+    summary: `Score preliminar basado en completitud y verificabilidad de la ficha (no evalúa calidad edilicia — corré el análisis IA o pedí visita técnica para eso).`,
+    strengths: [],
+    risks: [],
+    improvements: notes,
+    missing_photos: [],
+    recommended_photos: [],
+    inconsistencies: [],
+  };
+}
+
+function runBaseScore() {
+  const property = selectedProperty();
+  const analysis = computeBaseScore(property);
+  // No pisar un análisis IA completo con uno preliminar.
+  if (property.analysis && !property.analysis.preliminary) {
+    showToast("Ya hay un análisis IA completo — el preliminar no lo reemplaza.");
+    return;
+  }
+  property.analysis = analysis;
+  property.score = analysis.global_score;
+  saveState();
+  renderAll();
+  showToast(`Score preliminar: ${analysis.global_score.toFixed(1)} — completá la ficha para subirlo.`);
+}
+
+// Pegar una descripción libre → la IA extrae los campos y completa la ficha.
+async function aiFillFromDescription() {
+  const text = ($("#aiFillInput")?.value || "").trim();
+  const statusEl = $("#aiFillStatus");
+  if (text.length < 30) {
+    if (statusEl) statusEl.textContent = "Pegá una descripción de al menos un par de líneas.";
+    return;
+  }
+  const btn = $("#aiFillBtn");
+  btn.disabled = true;
+  if (statusEl) statusEl.textContent = "Extrayendo datos…";
+  try {
+    const result = await callOpenRouter({
+      functionType: "search",
+      temperature: 0,
+      messages: [{
+        role: "user",
+        content: `Extraé los datos de esta descripción de una propiedad en Uruguay. Devolvé SOLO JSON válido:
+{"title": string|null, "type": "Casa"|"Apartamento"|"Terreno"|"Chacra"|"Local"|null, "price_usd": number|null, "bedrooms": number|null, "bathrooms": number|null, "built_m2": number|null, "land_m2": number|null, "neighborhood": string|null, "city": string|null, "common_fees_usd": number|null, "year_built": number|null, "features": string[]}
+No inventes valores: usá null si el dato no está en el texto. features en minúsculas (ej: "parrillero","piscina","garaje").
+
+Descripción:
+${text.slice(0, 4000)}`,
+      }],
+    });
+    const property = selectedProperty();
+    const setIf = (field, value) => { if (value !== null && value !== undefined && value !== "") property[field] = value; };
+    setIf("title", result.title);
+    if (result.type) property.type = normalizePropertyType(result.type);
+    setIf("price", result.price_usd);
+    setIf("bedrooms", result.bedrooms);
+    setIf("bathrooms", result.bathrooms);
+    setIf("builtArea", result.built_m2);
+    setIf("landArea", result.land_m2);
+    setIf("neighborhood", result.neighborhood);
+    setIf("city", result.city);
+    setIf("commonFees", result.common_fees_usd);
+    setIf("yearBuilt", result.year_built);
+    if (!property.description) property.description = text;
+    (Array.isArray(result.features) ? result.features : []).forEach((feature) => {
+      property.extras = mergeExtras(property.extras || [], [{ label: String(feature), value: "Sí" }]);
+    });
+    const createdRooms = generateRoomsFromCounts(property);
+    saveState();
+    renderAll();
+    const got = ["title", "price_usd", "bedrooms", "built_m2", "neighborhood"].filter((k) => result[k] !== null && result[k] !== undefined).length;
+    if (statusEl) statusEl.textContent = `Listo: ficha completada${createdRooms ? ` + ${createdRooms} ambientes creados` : ""}. Revisá los datos antes de guardar.`;
+    showToast("Ficha completada desde la descripción");
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `No se pudo extraer (${error.message}). Cargá los datos manualmente.`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function applyScrapedData(scraped) {
   const property = selectedProperty();
   const data = scraped.data || {};
@@ -4399,8 +4714,13 @@ function applyScrapedData(scraped) {
   property.builtArea = data.builtArea ?? property.builtArea;
   property.landArea = data.landArea ?? property.landArea;
   property.commonFees = data.commonFees ?? property.commonFees;
+  property.yearBuilt = data.yearBuilt ?? property.yearBuilt;
   property.extras = mergeExtras(property.extras || [], data.extras || []);
   if (!property.builtArea) property.builtArea = builtAreaForValue(property) || "";
+  // Ambientes automáticos desde dorm./baños + extras detectados (parrillero, garaje…)
+  if ((property.rooms || []).length === 0 && (Number(property.bedrooms) || Number(property.bathrooms))) {
+    generateRoomsFromCounts(property);
+  }
 
   property.photos = property.photos.filter((photo) => !photo.source || photo.source === "manual");
   const existingUrls = new Set(property.photos.map((photo) => photo.url || photo.dataUrl));
@@ -4914,6 +5234,44 @@ function bindEvents() {
     saveState();
     renderRooms();
   });
+
+  $("#generateRoomsBtn")?.addEventListener("click", () => {
+    const property = selectedProperty();
+    if (!Number(property.bedrooms) && !Number(property.bathrooms)) {
+      showToast("Cargá dormitorios y baños en Datos principales primero.");
+      return;
+    }
+    const created = generateRoomsFromCounts(property);
+    saveState();
+    renderAll();
+    showToast(created ? `${created} ambiente${created === 1 ? "" : "s"} creados — completá área y notas.` : "Los ambientes ya estaban creados.");
+  });
+
+  $("#quickRoomRow")?.addEventListener("click", (event) => {
+    const name = event.target.dataset.quickRoom;
+    if (!name) return;
+    const property = selectedProperty();
+    const count = property.rooms.filter((r) => normalizeSearchText(r.name).startsWith(normalizeSearchText(name))).length;
+    property.rooms.push(room(uid("room"), count ? `${name} ${count + 1}` : name, event.target.dataset.roomType || "otro", "Sin planta", "", ""));
+    saveState();
+    renderRooms();
+  });
+
+  $("#estimateCostsBtn")?.addEventListener("click", () => {
+    const property = selectedProperty();
+    if (!Number(property.builtArea) && !Number(property.landArea) && !Number(property.price)) {
+      showToast("Cargá m² o precio primero para poder estimar.");
+      return;
+    }
+    const filled = estimateMonthlyCosts(property);
+    saveState();
+    renderAll();
+    $("#costEstimateNote")?.classList.toggle("hidden", !filled.length);
+    showToast(filled.length ? `Estimados: ${filled.join(", ")} — ajustalos con tus facturas.` : "Todos los costos ya estaban cargados.");
+  });
+
+  $("#baseScoreBtn")?.addEventListener("click", runBaseScore);
+  $("#aiFillBtn")?.addEventListener("click", aiFillFromDescription);
 
   $("#roomsList").addEventListener("input", updateRoomFromEvent);
   $("#roomsList").addEventListener("change", updateRoomFromEvent);

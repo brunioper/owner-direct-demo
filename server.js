@@ -1231,6 +1231,7 @@ async function scrapeHtml(url, html) {
     landArea: firstNumber(mercadoLibre?.data?.landArea, readArea(text, ["terreno", "solar", "lote", "superficie total", "totales", "total"])),
     totalArea: firstNumber(mercadoLibre?.data?.totalArea, readArea(text, ["superficie total", "totales", "total"])),
     commonFees: readExpenses(text),
+    yearBuilt: normalizeYearBuilt(firstNumber(mercadoLibre?.data?.yearBuilt, readYearBuilt(text))),
     city: readCity(jsonLd, metadata, text),
     neighborhood: readNeighborhood(jsonLd, metadata, text),
     lat: coordinates.lat,
@@ -1287,6 +1288,7 @@ async function readMercadoLibreEnrichment(url, html) {
       bathrooms: attrNumber(attrs, ["FULL_BATHROOMS", "BATHROOMS"], ["Baños", "Banos"]),
       parking: attrNumber(attrs, ["PARKING_LOTS", "GARAGES"], ["Cocheras", "Garajes"]),
       builtArea: attrNumber(attrs, ["COVERED_AREA", "PRIVATE_AREA"], ["Área privada", "Area privada", "Superficie cubierta", "Cubiertos", "Edificados"]),
+      yearBuilt: attrNumber(attrs, ["YEAR_BUILT", "PROPERTY_AGE"], ["Año de construcción", "Antigüedad", "Antiguedad"]),
       landArea: attrNumber(attrs, ["TOTAL_AREA", "LOT_AREA"], ["Superficie total", "Terreno"]),
       totalArea: attrNumber(attrs, ["TOTAL_AREA", "LOT_AREA"], ["Superficie total"]),
       extras: attrs
@@ -1481,6 +1483,23 @@ function readArea(text, labels) {
     const after = new RegExp(`${labelPattern(label)}\\s*:?\\s*([0-9]+(?:[,.\\s][0-9]+)*)\\s*m(?:²|2)?`, "i").exec(text);
     if (after) return numberFrom(after[1]);
   }
+  return null;
+}
+
+function readYearBuilt(text) {
+  const yearMatch = text.match(/(?:a[ñn]o de construcci[oó]n|construid[ao] en|edificad[ao] en)\s*:?\s*((?:19|20)\d{2})/i);
+  if (yearMatch) return Number(yearMatch[1]);
+  const ageMatch = text.match(/antig[üu]edad\s*:?\s*([0-9]{1,3})\s*a[ñn]os?/i);
+  if (ageMatch) return Number(ageMatch[1]);
+  return null;
+}
+
+// ML/portales a veces reportan antigüedad (años) en vez de año de construcción.
+function normalizeYearBuilt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n >= 1800 && n <= new Date().getFullYear() + 2) return Math.round(n);
+  if (n < 150) return new Date().getFullYear() - Math.round(n);
   return null;
 }
 

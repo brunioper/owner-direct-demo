@@ -252,6 +252,15 @@
               </div>
               <div id="scrapeOutput" class="hint hidden"></div>
               <div id="scrapeProgress" class="operation-progress hidden"></div>
+              <div class="ai-fill-box">
+                <label>¿Tenés una descripción escrita? Pegala y la IA completa la ficha
+                  <textarea id="aiFillInput" rows="4" placeholder="Ej: Casa de 4 dormitorios y 3 baños en Colinas de Carrasco, 250 m² edificados en terreno de 1000 m², con piscina, parrillero y garaje doble. USD 480.000, gastos comunes 120..."></textarea>
+                </label>
+                <div class="ai-fill-actions">
+                  <button id="aiFillBtn">Completar ficha con IA</button>
+                  <span id="aiFillStatus" class="muted-light"></span>
+                </div>
+              </div>
             </div>
 
             <form class="panel data-step" id="propertyForm">
@@ -396,7 +405,21 @@
                 <p class="eyebrow">Ambientes flexibles</p>
                 <h2>Ambientes</h2>
               </div>
-              <button id="addRoomBtn">Agregar ambiente</button>
+              <div class="panel-actions">
+                <button id="generateRoomsBtn" title="Crea living, cocina, dormitorios y baños según los datos cargados">Generar según dorm./baños</button>
+                <button id="addRoomBtn">Agregar ambiente</button>
+              </div>
+            </div>
+            <div class="quick-room-row" id="quickRoomRow">
+              <span>Agregar rápido</span>
+              <button type="button" data-quick-room="Living" data-room-type="living">+ Living</button>
+              <button type="button" data-quick-room="Cocina" data-room-type="cocina">+ Cocina</button>
+              <button type="button" data-quick-room="Dormitorio" data-room-type="dormitorio">+ Dormitorio</button>
+              <button type="button" data-quick-room="Baño" data-room-type="bano">+ Baño</button>
+              <button type="button" data-quick-room="Parrillero" data-room-type="exterior">+ Parrillero</button>
+              <button type="button" data-quick-room="Garaje" data-room-type="garaje">+ Garaje</button>
+              <button type="button" data-quick-room="Jardín" data-room-type="exterior">+ Jardín</button>
+              <button type="button" data-quick-room="Terraza" data-room-type="exterior">+ Terraza</button>
             </div>
             <div id="roomsList" class="stack"></div>
           </div>
@@ -445,11 +468,15 @@
                 <p class="eyebrow">Costos verificables</p>
                 <h2>Facturas y documentos</h2>
               </div>
-              <label class="upload-btn">
-                Subir documento
-                <input id="documentInput" type="file" accept="image/*,.pdf" multiple />
-              </label>
+              <div class="panel-actions">
+                <button id="estimateCostsBtn" title="Estima los costos vacíos según m², tipo y precio">Estimar costos</button>
+                <label class="upload-btn">
+                  Subir documento
+                  <input id="documentInput" type="file" accept="image/*,.pdf" multiple />
+                </label>
+              </div>
             </div>
+            <div id="costEstimateNote" class="hint hidden">Valores estimados según m², tipo y precio — reemplazalos con los montos de tus facturas reales. El comprador ve la diferencia entre costos declarados y verificados.</div>
             <div class="form-grid">
               <label>UTE promedio mensual<input name="uteAvg" form="propertyForm" type="number" min="0" /></label>
               <label>OSE promedio mensual<input name="oseAvg" form="propertyForm" type="number" min="0" /></label>
@@ -467,7 +494,10 @@
                 <p class="eyebrow">Score de esta propiedad</p>
                 <h2 id="scorePropertyTitle">Propiedad seleccionada</h2>
               </div>
-              <button id="manualScoreBtn">Ajuste manual</button>
+              <div class="panel-actions">
+                <button id="baseScoreBtn" title="Calcula un score preliminar según completitud de datos, fotos, costos y documentación — sin IA">Score preliminar</button>
+                <button id="manualScoreBtn">Ajuste manual</button>
+              </div>
             </div>
             <div class="score-inline">
               <div class="score-card flat">

@@ -2006,6 +2006,44 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .wizard-controls-meta { font-size: var(--t-small); color: var(--muted); }
 .wizard-controls-actions { display: flex; gap: 8px; }
 
+/* editor productivity: quick-room chips + AI describe-to-fill */
+.quick-room-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px 0;
+}
+.quick-room-row > span {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex-basis: 100%;
+}
+.quick-room-row button {
+  font-size: 11px;
+  color: var(--ink-soft);
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  min-height: 0;
+}
+.quick-room-row button:hover { background: var(--gold-wash); border-color: var(--gold); color: var(--ink); }
+
+.ai-fill-box {
+  display: grid;
+  gap: 10px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 16px 18px;
+}
+.ai-fill-box textarea { resize: vertical; min-height: 84px; }
+.ai-fill-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
 /* ── 21 · ADMIN IA ─────────────────────────────────────────────────── */
 
 .ai-manager-panel .form-grid { grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr); }
