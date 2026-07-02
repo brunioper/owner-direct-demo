@@ -60,17 +60,21 @@ serif). Never use `#000000`/`#FFFFFF` for text, never any blue. One accent
 family only: **verde seco**. All values live in the single `:root` of
 `styles.css` — a raw hex anywhere else is a defect.
 
-### 3.2 Typography
+### 3.2 Typography — Poppins / Inter (per mitti brand board)
 
 | Purpose | Font | Size desktop | Size mobile |
 |---|---|---|---|
-| Logo / brand | Cormorant Garamond 400 | 21px | 18px |
-| Display / price | Cormorant Garamond 300–400 | 32–56px | 24–36px |
-| Section headers | Cormorant Garamond 400 | 20–26px | 18–22px |
-| Body | DM Sans 300–400 | 11–13px | 11px |
-| Labels / caps | DM Sans 400, uppercase, letter-spacing .1–.2em | 9–11px | 9–10px |
+| Logo / wordmark | Poppins 500, lowercase, tracking .14em | 16–17px | 15px |
+| Display / hero | Poppins 300–400, tracking −.02em | 32–54px | 28–34px |
+| Prices / stats | Poppins 400 | 21–38px | 18–24px |
+| Section headers | Poppins 400–500 | 15–19px | 14–17px |
+| Body / UI | Inter 300–400 | 12–14px | 12px |
+| Labels / caps | Inter 500, uppercase, tracking .1–.2em | 9–11px | 9–10px |
 
-Load only the weights listed above via Google Fonts. No weight bloat.
+Tokens: `--font-display` (Poppins), `--font-sans` (Inter). Load only weights
+Poppins 300/400/500 + italic 300 and Inter 300/400/500. No serif anywhere.
+Logo mark: the architectural-plan "M" (inline SVG, stroke `currentColor`,
+square caps) — used in sidebar, pill-nav, and favicon.
 
 ### 3.3 Cards + geometry
 

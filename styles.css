@@ -39,11 +39,11 @@
   --bad: #A85448;
   --bad-wash: rgba(168, 84, 72, 0.10);
   /* type */
-  --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
-  --font-sans: 'DM Sans', -apple-system, 'Segoe UI', sans-serif;
-  --t-hero: clamp(46px, 5vw, 76px);
-  --t-display: clamp(30px, 3.2vw, 48px);
-  --t-title: 24px;
+  --font-display: 'Poppins', 'Inter', -apple-system, sans-serif;
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --t-hero: clamp(32px, 3.6vw, 54px);
+  --t-display: clamp(24px, 2.6vw, 38px);
+  --t-title: 19px;
   --t-body: 14px;
   --t-small: 12px;
   --t-caps: 10px;
@@ -95,11 +95,11 @@ a { color: var(--ink); text-decoration-color: var(--gold); text-underline-offset
 a:hover { color: var(--gold-deep); }
 
 h1, h2, h3 {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-weight: 400;
-  line-height: 1.15;
+  line-height: 1.2;
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 h4, h5, h6 { font-family: var(--font-sans); font-weight: 500; margin: 0; line-height: 1.3; }
 p { margin: 0 0 10px; }
@@ -124,7 +124,7 @@ strong { font-weight: 500; }
    whose display is otherwise set by equal-or-higher-specificity rules. */
 .hidden { display: none !important; }
 
-.cormorant { font-family: var(--font-serif); }
+.cormorant { font-family: var(--font-display); }
 .muted-light { color: var(--muted); font-size: var(--t-small); }
 
 /* ── 03 · TYPOGRAPHY PATTERNS ──────────────────────────────────────── */
@@ -345,17 +345,15 @@ dialog::backdrop { background: rgba(10, 20, 32, 0.55); }
   height: 40px;
   display: grid;
   place-items: center;
-  background: var(--gold);
-  color: var(--cream-ink);
-  font-family: var(--font-sans);
-  font-weight: 500;
-  font-size: 16px;
-  border-radius: var(--r-tight);
+  background: var(--sand);
+  color: var(--ink);
+  border-radius: 9px;
   flex-shrink: 0;
 }
+.brand-mark svg { width: 26px; height: 26px; }
 .brand strong {
   display: block;
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 500;
   letter-spacing: 0.14em;
@@ -363,10 +361,11 @@ dialog::backdrop { background: rgba(10, 20, 32, 0.55); }
 }
 .brand span {
   display: block;
-  font-size: var(--t-caps);
-  letter-spacing: 0.14em;
+  font-size: 9px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(245, 240, 232, 0.5);
+  color: rgba(239, 235, 223, 0.5);
+  padding-right: 30px;
 }
 
 .sidebar-toggle {
@@ -520,9 +519,12 @@ body[data-view="marketplace"] .shell { padding: 0; min-height: 100vh; }
 }
 body[data-view="marketplace"] .pill-nav { display: flex; }
 
-.pill-nav-brand { display: flex; flex-direction: column; line-height: 1.05; }
+.pill-nav-brand { display: flex; align-items: center; gap: 9px; }
+.pill-nav-mark { display: grid; place-items: center; color: var(--ink); }
+.pill-nav-mark svg { width: 21px; height: 21px; }
+.pill-nav-wordmark { display: flex; flex-direction: column; line-height: 1.05; }
 /* wordmark "mitti": lowercase geometric sans per brand board */
-.pill-nav-logo { font-family: var(--font-sans); font-size: 16px; font-weight: 500; letter-spacing: 0.14em; color: var(--ink); }
+.pill-nav-logo { font-family: var(--font-display); font-size: 16px; font-weight: 500; letter-spacing: 0.14em; color: var(--ink); }
 .pill-nav-sub {
   font-size: 9px;
   letter-spacing: 0.2em;
@@ -958,7 +960,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   display: grid;
   place-items: center;
   background: var(--sand);
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 56px;
   font-weight: 300;
   color: var(--gold);
@@ -1009,11 +1011,11 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 }
 .public-price {
   order: 2;
-  font-family: var(--font-serif);
-  font-size: clamp(28px, 2.6vw, 34px);
-  font-weight: 300;
+  font-family: var(--font-display);
+  font-size: clamp(21px, 2vw, 26px);
+  font-weight: 400;
   letter-spacing: -0.02em;
-  line-height: 1;
+  line-height: 1.1;
   color: var(--ink);
   margin-bottom: 6px;
 }
@@ -1102,7 +1104,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   overflow: hidden;
 }
 .map-popup { font-family: var(--font-sans); font-size: 12px; }
-.map-popup strong { font-family: var(--font-serif); font-size: 15px; display: block; }
+.map-popup strong { font-family: var(--font-display); font-size: 13px; font-weight: 500; display: block; }
 
 .fallback-map {
   position: relative;
@@ -1150,7 +1152,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   -webkit-backdrop-filter: blur(12px);
   z-index: 5;
 }
-.property-modal-head h2 { font-size: 26px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.property-modal-head h2 { font-size: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 #propertyModalContent { padding: 0 28px 40px; }
 
@@ -1166,7 +1168,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   padding: 18px 20px;
   margin: 20px 0 4px;
 }
-.modal-sticky-summary h2 { font-size: 24px; line-height: 1.1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.modal-sticky-summary h2 { font-size: 19px; line-height: 1.1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .modal-sticky-summary > div:first-child > span { font-size: var(--t-small); color: var(--ink-soft); }
 .trust-line { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .trust-sub { font-size: 11px; color: var(--muted); }
@@ -1251,7 +1253,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   background: var(--sand);
   border-radius: var(--r-card);
   color: var(--muted);
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 18px;
   font-style: italic;
 }
@@ -1288,7 +1290,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .mortgage-output-row span em { font-style: normal; font-size: 11px; color: var(--muted); }
 .mortgage-output-row strong { font-variant-numeric: tabular-nums; font-weight: 500; }
 .mortgage-output-row:first-child strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 400;
   color: var(--gold-deep);
@@ -1298,8 +1300,8 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 
 /* score */
 .score-public .score-value {
-  font-family: var(--font-serif);
-  font-size: 52px;
+  font-family: var(--font-display);
+  font-size: 38px;
   font-weight: 300;
   color: var(--gold-deep);
   line-height: 1;
@@ -1320,7 +1322,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   border-radius: var(--r-pill);
   transition: width 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.score-inline { font-family: var(--font-serif); color: var(--gold-deep); }
+.score-inline { font-family: var(--font-display); color: var(--gold-deep); }
 .score-dial { display: inline-flex; align-items: center; gap: 4px; color: var(--gold-deep); }
 
 .score-info-btn {
@@ -1405,7 +1407,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   border-radius: var(--r-card);
   font-weight: 500;
 }
-.cost-total strong { font-family: var(--font-serif); font-size: 19px; }
+.cost-total strong { font-family: var(--font-display); font-size: 19px; }
 
 .costs-incomplete-banner {
   background: var(--warn-wash);
@@ -1472,7 +1474,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .room-item:hover, .room-card:hover { background: var(--cream); color: var(--ink); border-color: var(--gold); transform: translateY(-2px); box-shadow: var(--e1); }
 .room-item.active, .room-card.active { border-color: var(--gold); background: var(--gold-wash); }
 .room-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.room-card-name { font-family: var(--font-serif); font-size: 17px; color: var(--ink); }
+.room-card-name { font-family: var(--font-display); font-size: 14px; font-weight: 500; color: var(--ink); }
 .room-card-meta { font-size: 11px; color: var(--muted); }
 .room-score-bubble {
   font-size: 12px;
@@ -1531,9 +1533,9 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .comparable-card:hover { transform: translateY(-2px); box-shadow: var(--e1); }
 .comparable-thumb, .comparable-no-photo { aspect-ratio: 16 / 10; background: var(--sand); }
 .comparable-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.comparable-no-photo { display: grid; place-items: center; font-family: var(--font-serif); color: var(--gold); font-size: 24px; }
+.comparable-no-photo { display: grid; place-items: center; font-family: var(--font-display); color: var(--gold); font-size: 24px; }
 .comparable-body { padding: 10px 12px; font-size: var(--t-small); }
-.comparable-price { font-family: var(--font-serif); font-size: 17px; display: block; }
+.comparable-price { font-family: var(--font-display); font-size: 15px; font-weight: 500; display: block; }
 .comparable-link { font-size: 11px; color: var(--gold-deep); }
 
 /* neighborhood card */
@@ -1544,7 +1546,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   padding: 22px 24px;
 }
 .neighborhood-card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.neighborhood-card-name { font-family: var(--font-serif); font-size: 24px; }
+.neighborhood-card-name { font-family: var(--font-display); font-size: 19px; }
 .neighborhood-card-city { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(245, 240, 232, 0.5); }
 .neighborhood-avg-m2 { color: var(--gold-light); font-weight: 500; }
 .neighborhood-description { font-size: 13px; color: rgba(245, 240, 232, 0.75); line-height: 1.6; margin-top: 10px; }
@@ -1593,7 +1595,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   background: var(--ink);
   color: var(--gold-light);
   border: 1px solid var(--ink);
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: 18px;
   box-shadow: var(--e2);
   padding: 0;
@@ -1661,7 +1663,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 }
 .dash-stat-num {
   display: block;
-  font-family: var(--font-serif);
+  font-family: var(--font-display);
   font-size: var(--t-display);
   font-weight: 300;
   line-height: 1;
@@ -1730,7 +1732,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   border-radius: var(--r-card);
   padding: 14px 16px;
 }
-.market-intel-stat strong { font-family: var(--font-serif); font-size: 22px; font-weight: 400; display: block; }
+.market-intel-stat strong { font-family: var(--font-display); font-size: 17px; font-weight: 500; display: block; }
 .market-intel-stat span { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .market-intel-sentence { font-size: var(--t-small); color: var(--ink-soft); font-style: italic; margin-top: 12px; }
 
@@ -1781,7 +1783,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 
 /* completeness */
 .completeness-header, .completeness-title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.completeness-pct { font-family: var(--font-serif); font-size: 20px; color: var(--gold-deep); }
+.completeness-pct { font-family: var(--font-display); font-size: 20px; color: var(--gold-deep); }
 .completeness-label { font-size: var(--t-caps); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .completeness-checklist { display: grid; gap: 5px; margin-top: 10px; }
 .completeness-item { display: flex; align-items: center; gap: 8px; font-size: var(--t-small); color: var(--ink-soft); }
@@ -1877,8 +1879,9 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 .form-section-head { margin-bottom: 14px; }
 .form-section-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .form-section h4 {
-  font-family: var(--font-serif);
-  font-size: 19px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
   font-weight: 400;
   display: flex;
   align-items: center;
@@ -1952,7 +1955,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   border-radius: var(--r-card);
   padding: 20px 24px;
 }
-.score-card .score-value { font-family: var(--font-serif); font-size: 44px; font-weight: 300; color: var(--gold-light); line-height: 1; }
+.score-card .score-value { font-family: var(--font-display); font-size: 44px; font-weight: 300; color: var(--gold-light); line-height: 1; }
 .score-card .bar-row { color: rgba(245, 240, 232, 0.75); }
 .score-card .bar { background: rgba(245, 240, 232, 0.12); }
 
@@ -2069,7 +2072,7 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   align-content: start;
   font-size: var(--t-small);
 }
-.model-summary-card strong { font-family: var(--font-serif); font-size: 18px; font-weight: 400; }
+.model-summary-card strong { font-family: var(--font-display); font-size: 15px; font-weight: 500; }
 .model-summary-card small { color: var(--ink-soft); font-size: 11px; word-break: break-word; }
 .model-summary-card em { color: var(--muted); font-style: normal; font-size: 10px; }
 .model-summary-card.system { background: var(--night); color: var(--cream-ink); border-color: var(--night); }
@@ -2200,7 +2203,7 @@ body[data-view="marketplace"] .offline-banner { top: 76px; }
   border-radius: var(--r-card);
   grid-column: 1 / -1;
 }
-.empty strong { font-family: var(--font-serif); font-size: 21px; font-weight: 400; }
+.empty strong { font-family: var(--font-display); font-size: 17px; font-weight: 400; }
 .empty span { font-size: var(--t-small); color: var(--muted); }
 .empty-first-cta, .empty-clear-btn { margin-top: 12px; }
 
@@ -2248,7 +2251,7 @@ body[data-view="marketplace"] .offline-banner { top: 76px; }
   min-width: 140px;
 }
 .compare-row-label { font-size: var(--t-caps); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
-.compare-property-head { font-family: var(--font-serif); font-size: 17px; }
+.compare-property-head { font-family: var(--font-display); font-size: 17px; }
 .compare-thumb { width: 130px; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--r-tight); }
 
 /* ── 23 · RESPONSIVE ───────────────────────────────────────────────── */

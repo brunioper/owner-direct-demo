@@ -6,14 +6,24 @@
     <title>mitti — Vendé tu propiedad con control</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;1,300&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='11' fill='%23E7DFCF'/%3E%3Cpath d='M13 34 V15 L24 27 35 15 V34' fill='none' stroke='%232B2E31' stroke-width='2.6' stroke-linecap='square' stroke-linejoin='miter'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">M</div>
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor">
+            <g stroke-width="0.8" opacity="0.4">
+              <line x1="4" y1="14" x2="44" y2="14" />
+              <line x1="12" y1="6" x2="12" y2="42" />
+              <line x1="36" y1="6" x2="36" y2="42" />
+            </g>
+            <path d="M12 36 V14 L24 27 36 14 V36" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter" />
+          </svg>
+        </div>
         <div>
           <strong>mitti</strong>
           <span>Vendé tu propiedad con control</span>
@@ -36,8 +46,15 @@
     <main class="shell">
       <nav class="pill-nav" id="pillNav" aria-label="Navegación principal">
         <div class="pill-nav-brand">
-          <span class="pill-nav-logo">mitti</span>
-          <span class="pill-nav-sub">Uruguay</span>
+          <span class="pill-nav-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor">
+              <path d="M11 36 V14 L24 28 37 14 V36" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter" />
+            </svg>
+          </span>
+          <div class="pill-nav-wordmark">
+            <span class="pill-nav-logo">mitti</span>
+            <span class="pill-nav-sub">Uruguay</span>
+          </div>
         </div>
         <div class="pill-nav-links" id="pillNavLinks">
           <button class="pill-nav-link active" data-top-view="marketplace">Propiedades</button>
