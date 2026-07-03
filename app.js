@@ -1,3 +1,25 @@
+// Traduce nombres de ambiente que la IA a veces devuelve en inglés.
+// Declarado arriba porque ensurePropertyDefaults() lo usa en la carga inicial.
+const ROOM_NAME_ES = {
+  "kitchen": "Cocina", "living": "Living", "living room": "Living", "dining": "Comedor",
+  "dining room": "Comedor", "bedroom": "Dormitorio", "master bedroom": "Dormitorio principal",
+  "bathroom": "Baño", "toilet": "Toilette", "hall": "Hall", "hallway": "Hall",
+  "garage": "Cochera", "driveway": "Entrada", "patio/driveway": "Patio", "patio": "Patio",
+  "backyard": "Fondo", "yard": "Jardín", "garden": "Jardín", "terrace": "Terraza",
+  "balcony": "Balcón", "rooftop": "Azotea", "laundry": "Lavadero", "office": "Escritorio",
+  "studio": "Monoambiente", "pool": "Piscina", "exterior": "Exterior", "facade": "Fachada",
+  "front": "Frente", "entrance": "Entrada",
+};
+function spanishRoomName(name = "") {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const key = normalizeText(raw).replace(/\s*\d+\s*$/, "").trim();
+  const num = (raw.match(/(\d+)\s*$/) || [])[1] || "";
+  const mapped = ROOM_NAME_ES[normalizeText(raw)] || ROOM_NAME_ES[key];
+  if (mapped) return num ? `${mapped} ${num}` : mapped;
+  return raw;
+}
+
 const STORAGE_KEY = "od-demo-state-v1";
 const SETTINGS_KEY = "od-demo-settings-v1";
 const AI_CONFIG_KEY = "od-demo-ai-config-v1";
@@ -200,6 +222,8 @@ function ensurePropertyDefaults(property) {
   property.scrapeReview ??= null;
   property.chatMessages ??= null;
   property.rooms ??= [];
+  // Sanea nombres de ambiente que quedaron en inglés de scrapes anteriores.
+  property.rooms.forEach((r) => { if (r && r.name) r.name = spanishRoomName(r.name); });
   property.photos ??= [];
   property.videos ??= [];
   property.plans ??= [];
@@ -2123,11 +2147,12 @@ function renderPropertyModal() {
 
   const isOwnerView = canManageProperties() || propertyOwnedByCurrentUser(property);
   const MODAL_TABS = isOwnerView
-    ? ["ficha", "ambientes", "checklist", "datos", "costos"]
-    : ["ficha", "ambientes", "costos"];
+    ? ["ficha", "ambientes", "zona", "checklist", "datos", "costos"]
+    : ["ficha", "ambientes", "zona", "costos"];
   const TAB_LABELS = {
     ficha: isOwnerView ? "Ficha" : "Propiedad",
     ambientes: "Ambientes",
+    zona: "Zona",
     checklist: "Checklist",
     datos: "Datos",
     costos: "Costos",
@@ -2179,6 +2204,9 @@ function renderPropertyModal() {
     <section class="modal-tab-panel ${initialTab === "ambientes" ? "active" : ""}" data-modal-panel="ambientes">
       ${renderAmbientesPanel(property)}
     </section>
+    <section class="modal-tab-panel ${initialTab === "zona" ? "active" : ""}" data-modal-panel="zona">
+      ${renderZonaPanel(property)}
+    </section>
     <section class="modal-tab-panel ${initialTab === "checklist" ? "active" : ""}" data-modal-panel="checklist">
       ${renderChecklistPanel(property, photos)}
     </section>
@@ -2199,6 +2227,8 @@ function renderPropertyModal() {
   if (property.neighborhood) {
     loadNeighborhoodData(property.neighborhood, property.city || MARKET_CONFIG.defaultCity);
   }
+  // Async: generate the Zona guide (nearby places + transport) if not cached.
+  if (!property.zonaGuide) loadZonaGuide(property);
 
   // Wire comparable card clicks
   content.querySelectorAll("[data-comparable-id]").forEach((el) => {
@@ -2564,8 +2594,13 @@ function renderAmbientesPanel(property) {
     `;
   })() : "";
 
-  const mejoras = improvements.length ? `
-    <div class="modal-section" style="margin-top:20px">
+  // Las mejoras de valor y el impacto estimado son inteligencia para el
+  // VENDEDOR — solo el dueño de la ficha o un admin las ven, nunca el comprador.
+  const canSeeValueTools = canManageProperties() || propertyOwnedByCurrentUser(property);
+
+  const mejoras = !canSeeValueTools ? "" : improvements.length ? `
+    <div class="modal-section owner-only-section" style="margin-top:20px">
+      <div class="owner-only-flag">Visible solo para vos (propietario/admin)</div>
       <h3>Mejoras sugeridas</h3>
       <div class="mejoras-list">
         ${improvements.map(renderMejoraCard).join("")}
@@ -2575,10 +2610,119 @@ function renderAmbientesPanel(property) {
     </div>
   ` : `<p class="public-description" style="padding-top:16px;padding-bottom:4px">Sin mejoras IA sugeridas todavía.</p>`;
 
-  if (!rooms.length && !improvements.length) {
+  if (!rooms.length && (!canSeeValueTools || !improvements.length)) {
     return `<p class="public-description" style="padding:22px 0">Sin datos de ambientes disponibles.</p>`;
   }
   return roomCardsHtml + mejoras;
+}
+
+const ZONA_CATEGORIES = [
+  { key: "parques", label: "Parques y espacios verdes", icon: "🌳" },
+  { key: "colegios", label: "Colegios y educación", icon: "🎓" },
+  { key: "salud", label: "Salud", icon: "🏥" },
+  { key: "comercios", label: "Comercios y servicios", icon: "🛒" },
+  { key: "cultura", label: "Cultura y ocio", icon: "🏛️" },
+];
+
+function renderZonaPanel(property) {
+  const guide = property.zonaGuide;
+  const barrio = escapeHtml(property.neighborhood || MARKET_CONFIG.defaultCity);
+  if (!guide) {
+    return `
+      <div class="zona-loading" id="zonaLoading">
+        <div class="modal-section">
+          <h3>Zona y entorno</h3>
+          <p class="public-description">Armando la guía de <strong>${barrio}</strong>: lugares cercanos, colegios, verde y cómo llegar…</p>
+          <div class="skeleton-line wide"></div><div class="skeleton-line"></div><div class="skeleton-line wide"></div>
+        </div>
+      </div>`;
+  }
+  const nearby = ZONA_CATEGORIES.map((cat) => {
+    const items = (guide.nearby?.[cat.key] || []).filter(Boolean).slice(0, 5);
+    if (!items.length) return "";
+    return `
+      <div class="zona-cat">
+        <div class="zona-cat-head"><span class="zona-icon" aria-hidden="true">${cat.icon}</span><h4>${cat.label}</h4></div>
+        <ul class="zona-list">
+          ${items.map((it) => `<li><span>${escapeHtml(it.name || it)}</span>${it.walk ? `<em>${escapeHtml(it.walk)}</em>` : ""}</li>`).join("")}
+        </ul>
+      </div>`;
+  }).join("");
+
+  const transport = (guide.transport || []).filter(Boolean).slice(0, 6);
+  const transportHtml = transport.length ? `
+    <div class="modal-section">
+      <h3>Cómo llegar</h3>
+      <div class="zona-transport">
+        ${transport.map((t) => `<div class="transport-row"><span class="transport-mode">${escapeHtml(t.mode || "")}</span><span>${escapeHtml(t.detail || t)}</span></div>`).join("")}
+      </div>
+    </div>` : "";
+
+  return `
+    <div class="modal-section">
+      <h3>Zona y entorno</h3>
+      ${guide.summary ? `<p class="public-description">${escapeHtml(guide.summary)}</p>` : ""}
+      ${guide.lifestyle ? `<div class="zona-lifestyle">${escapeHtml(guide.lifestyle)}</div>` : ""}
+      <div class="zona-grid">${nearby || `<p class="public-description">Sin lugares cercanos cargados.</p>`}</div>
+    </div>
+    ${transportHtml}
+    <p class="zona-disclaimer">Información orientativa generada para ${barrio}. Verificá distancias y horarios antes de decidir.</p>
+  `;
+}
+
+// Genera la guía de zona (lugares cercanos + transporte). Cachea en la ficha.
+async function loadZonaGuide(property) {
+  if (property._zonaLoading) return;
+  property._zonaLoading = true;
+  const context = `${property.neighborhood || ""}, ${property.city || MARKET_CONFIG.defaultCity}, ${MARKET_CONFIG.country}`;
+  try {
+    const result = await callOpenRouter({
+      functionType: "search",
+      temperature: 0.3,
+      messages: [{
+        role: "user",
+        content: `Sos un guía inmobiliario local de ${MARKET_CONFIG.country}. Para una propiedad en ${context}, describí el entorno REAL de la zona. Respondé SOLO en español rioplatense y SOLO JSON:
+{
+  "summary": "2 oraciones sobre el perfil de la zona (a quién le sirve, ambiente)",
+  "lifestyle": "1 oración sobre estilo de vida",
+  "nearby": {
+    "parques": [{"name": string, "walk": "≈X min a pie/auto"}],
+    "colegios": [{"name": string, "walk": string}],
+    "salud": [{"name": string, "walk": string}],
+    "comercios": [{"name": string, "walk": string}],
+    "cultura": [{"name": string, "walk": string}]
+  },
+  "transport": [{"mode": "Auto"|"Ómnibus"|"Bici"|"A pie", "detail": "cómo llegar al centro / puntos clave y tiempo aprox"}]
+}
+Usá lugares y referencias reales o típicas de la zona. Si no conocés un nombre exacto, describí el tipo (ej: "Colegio bilingüe de la zona"). Máximo 4 por categoría.`,
+      }],
+    });
+    property.zonaGuide = {
+      summary: result.summary || "",
+      lifestyle: result.lifestyle || "",
+      nearby: result.nearby || {},
+      transport: Array.isArray(result.transport) ? result.transport : [],
+      generatedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    // Fallback determinístico usando datos del barrio ya cargados.
+    const nb = state.neighborhoodCache?.[normalizeText(property.neighborhood || "")];
+    property.zonaGuide = {
+      summary: nb?.description || `Zona de ${property.neighborhood || property.city || "la propiedad"}. Consultá el mapa y la ficha para más contexto.`,
+      lifestyle: "",
+      nearby: {},
+      transport: [],
+      degraded: true,
+    };
+  } finally {
+    property._zonaLoading = false;
+    saveState();
+    // Re-render solo si el modal sigue abierto en esta propiedad.
+    if ($("#propertyModal")?.open && state.selectedId === property.id) {
+      const panel = document.querySelector('[data-modal-panel="zona"]');
+      if (panel) panel.innerHTML = renderZonaPanel(property);
+    }
+  }
 }
 
 function renderChecklistPanel(property, photos) {
@@ -3668,7 +3812,7 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`,
         (floor.rooms || []).forEach((detectedRoom) => {
           suggested.push({
             id: uid("room-ai"),
-            name: detectedRoom.name || detectedRoom.type || "Ambiente detectado",
+            name: spanishRoomName(detectedRoom.name) || spanishRoomName(detectedRoom.type) || "Ambiente detectado",
             type: normalizeRoomType(detectedRoom.type),
             floor: floor.name || "Planta",
             area: detectedRoom.estimated_area_m2 || "",
@@ -3998,6 +4142,8 @@ async function validateScrapedProperty(property) {
   "remove_photo_names": string[]
 }
 
+IMPORTANTE: Todo el texto (summary, warnings, reason, room_name, room_type) debe estar en ESPAÑOL rioplatense. Nombres de ambientes en español: "Living", "Cocina", "Dormitorio 1", "Baño", "Patio", "Jardín", "Cochera", "Terraza" — nunca en inglés (nada de "Kitchen", "Bedroom", "Living Room", "Driveway").
+
 Datos:
 ${JSON.stringify(propertyPrompt(property), null, 2)}
 
@@ -4045,9 +4191,10 @@ function applyScrapeReview(property, review) {
   (review.photo_room_segments || []).forEach((segment) => {
     const photo = property.photos.find((item) => normalizeText(item.name) === normalizeText(segment.photo_name));
     if (!photo) return;
-    let roomItem = property.rooms.find((item) => normalizeText(item.name) === normalizeText(segment.room_name));
+    const roomName = spanishRoomName(segment.room_name);
+    let roomItem = property.rooms.find((item) => normalizeText(item.name) === normalizeText(roomName));
     if (!roomItem) {
-      roomItem = room(uid("room-ai"), segment.room_name || segment.room_type || "Ambiente detectado", normalizeRoomType(segment.room_type), "Sin planta", "", "Sugerido por IA desde fotos scrapeadas");
+      roomItem = room(uid("room-ai"), roomName || spanishRoomName(segment.room_type) || "Ambiente detectado", normalizeRoomType(segment.room_type), "Sin planta", "", "Sugerido por IA desde fotos scrapeadas");
       roomItem.confirmed = false;
       property.rooms.push(roomItem);
     }
@@ -4371,6 +4518,147 @@ async function* streamSearchCall(messages) {
 
 // Mientras el usuario escribe: matcher LOCAL instantáneo (sin red, sin lag).
 // La IA completa solo corre al confirmar (Enter / botón Buscar).
+/* ── Quiz "Encontrá tu match" — recomendador determinístico, sin IA ──── */
+
+const QUIZ_QUESTIONS = [
+  {
+    key: "perfil", q: "¿Para qué buscás?", options: [
+      { v: "familia", label: "Vivir en familia" },
+      { v: "primera", label: "Primera vivienda" },
+      { v: "inversion", label: "Invertir / renta" },
+      { v: "downsize", label: "Achicar / práctico" },
+    ],
+  },
+  {
+    key: "prioridad", q: "¿Qué es lo más importante?", options: [
+      { v: "verde", label: "Espacio verde y aire libre" },
+      { v: "conexion", label: "Conexión y cercanía" },
+      { v: "precio", label: "El mejor precio" },
+      { v: "amplitud", label: "Amplitud y ambientes" },
+    ],
+  },
+  {
+    key: "presupuesto", q: "¿Presupuesto aproximado?", options: [
+      { v: 150000, label: "Hasta USD 150.000" },
+      { v: 300000, label: "USD 150.000 – 300.000" },
+      { v: 500000, label: "USD 300.000 – 500.000" },
+      { v: 99000000, label: "Sin límite fijo" },
+    ],
+  },
+];
+
+let quizAnswers = {};
+let quizStep = 0;
+
+function openQuiz() {
+  quizAnswers = {};
+  quizStep = 0;
+  renderQuizStep();
+  $("#quizDialog")?.showModal();
+}
+
+function renderQuizStep() {
+  const body = $("#quizBody");
+  if (!body) return;
+  if (quizStep < QUIZ_QUESTIONS.length) {
+    const step = QUIZ_QUESTIONS[quizStep];
+    $("#quizTitle").textContent = step.q;
+    body.innerHTML = `
+      <div class="quiz-progress">${QUIZ_QUESTIONS.map((_, i) => `<span class="${i <= quizStep ? "done" : ""}"></span>`).join("")}</div>
+      <div class="quiz-options">
+        ${step.options.map((o) => `<button type="button" class="quiz-option" data-quiz-value="${escapeAttr(String(o.v))}">${escapeHtml(o.label)}</button>`).join("")}
+      </div>
+      <p class="quiz-step-label">Paso ${quizStep + 1} de ${QUIZ_QUESTIONS.length}</p>`;
+    return;
+  }
+  // Resultados
+  $("#quizTitle").textContent = "Tu mejor match";
+  const ranked = scoreQuizMatches();
+  if (!ranked.length) {
+    body.innerHTML = `<p class="public-description">No hay propiedades publicadas que coincidan con tu presupuesto. Probá ampliar el rango.</p>
+      <div class="quiz-actions"><button type="button" class="quiz-restart">Reiniciar</button></div>`;
+    return;
+  }
+  const top = ranked[0];
+  body.innerHTML = `
+    <div class="quiz-result">
+      <p class="quiz-result-lead">${escapeHtml(top.reason)}</p>
+      <div class="quiz-match-card" data-quiz-open="${escapeAttr(top.property.id)}" role="button" tabindex="0">
+        <div class="quiz-match-media">${photoSrc(top.property.photos?.[0]) ? `<img src="${photoSrc(top.property.photos[0])}" alt="">` : `<span>${escapeHtml((top.property.title || "P")[0])}</span>`}</div>
+        <div class="quiz-match-body">
+          <span class="card-neighborhood">${escapeHtml((top.property.neighborhood || "").toUpperCase())}</span>
+          <strong class="public-price">${formatUsd(Number(top.property.price))}</strong>
+          <span>${escapeHtml(formatPropertyTitle(top.property.title))}</span>
+          <span class="quiz-match-fit">${top.fit}% de coincidencia</span>
+        </div>
+      </div>
+      <div class="quiz-actions">
+        <button type="button" class="primary quiz-see-all">${ranked.length === 1 ? "Ver el match" : `Ver los ${ranked.length} matches`}</button>
+        <button type="button" class="quiz-restart">Reiniciar</button>
+      </div>
+    </div>`;
+  quizRanked = ranked;
+}
+
+let quizRanked = [];
+
+function scoreQuizMatches() {
+  const source = state.properties.filter((p) => p.status === "published");
+  const maxPrice = Number(quizAnswers.presupuesto) || Infinity;
+  const prioridad = quizAnswers.prioridad;
+  const perfil = quizAnswers.perfil;
+  const scored = source.map((p) => {
+    if (Number(p.price) > maxPrice * 1.05) return null;
+    let score = 10;
+    const hay = propertySearchHaystack(p);
+    const beds = Number(p.bedrooms) || 0;
+    const land = Number(p.landArea) || 0;
+    const built = Number(p.builtArea) || 0;
+    // prioridad
+    if (prioridad === "verde") { if (/jardin|parrillero|piscina|patio|terraza/.test(hay)) score += 6; if (land > built * 1.5) score += 4; }
+    if (prioridad === "conexion") { if (/carrasco|pocitos|centro|punta carretas|cordon|tres cruces/.test(normalizeText(p.neighborhood || ""))) score += 6; }
+    if (prioridad === "precio") { if (maxPrice !== Infinity) score += Math.max(0, 8 * (1 - Number(p.price) / maxPrice)); score += Number(p.score) ? 0 : 2; }
+    if (prioridad === "amplitud") { score += Math.min(built / 40, 8); score += beds; }
+    // perfil
+    if (perfil === "familia") { score += Math.min(beds * 1.5, 6); if (/colegio|jardin|parque/.test(hay)) score += 2; }
+    if (perfil === "primera") { if (Number(p.price) <= maxPrice * 0.8) score += 4; if (beds <= 2) score += 2; }
+    if (perfil === "inversion") { const ppm = pricePerM2(p); if (ppm) score += Math.max(0, 6 - ppm / 500); }
+    if (perfil === "downsize") { if (built && built < 120) score += 5; if (normalizePropertyType(p.type) === "Apartamento") score += 3; }
+    // calidad de ficha como desempate
+    score += (Number(p.score) || 0) * 0.4;
+    return { property: p, score };
+  }).filter(Boolean);
+  if (!scored.length) return [];
+  const max = Math.max(...scored.map((s) => s.score));
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s, i) => ({
+    ...s,
+    fit: Math.round(60 + (s.score / max) * 40),
+    reason: i === 0 ? buildQuizReason(s.property, prioridad, perfil) : "",
+  }));
+}
+
+function buildQuizReason(p, prioridad, perfil) {
+  const bits = [];
+  if (prioridad === "verde") bits.push("espacio verde y aire libre");
+  if (prioridad === "conexion") bits.push("buena conexión");
+  if (prioridad === "precio") bits.push("relación precio/valor");
+  if (prioridad === "amplitud") bits.push("amplitud");
+  const perfilLabel = { familia: "para tu familia", primera: "como primera vivienda", inversion: "para invertir", downsize: "práctica" }[perfil] || "";
+  return `${formatPropertyTitle(p.title)} en ${p.neighborhood || p.city} es tu mejor opción ${perfilLabel}${bits.length ? ` por ${bits.join(" y ")}` : ""}.`;
+}
+
+function applyQuizToSearch() {
+  if (!quizRanked.length) return;
+  state.aiSearchIds = quizRanked.map((r) => r.property.id);
+  state.aiSearchExplanation = `Tu match: ${quizRanked.length} propiedad${quizRanked.length === 1 ? "" : "es"} ordenadas por afinidad con tu perfil.`;
+  state.clientPage = 0;
+  saveState();
+  $("#quizDialog")?.close();
+  renderMarketplace();
+  $(".results-toolbar")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function scheduleAiSearch() {
   clearTimeout(aiSearchDebounceTimer);
   aiSearchDebounceTimer = setTimeout(() => {
@@ -4848,6 +5136,18 @@ async function filterImportedPhotos({ silent = false } = {}) {
   let mode = "limpieza basica";
   removeIds = imported.filter((photo) => !looksLikePropertyPhoto(photo)).map((photo) => photo.id);
 
+  // Detección por dimensiones: logos/íconos son cuadrados o chicos. No necesita IA.
+  try {
+    const survivors = imported.filter((photo) => !removeIds.includes(photo.id));
+    const logoIds = await findLogoLikePhotos(survivors);
+    if (logoIds.length) {
+      removeIds = uniqueStrings([...removeIds, ...logoIds]);
+      mode = "limpieza basica + dimensiones";
+    }
+  } catch {
+    // best-effort — si falla la medición seguimos con lo que haya.
+  }
+
   const modelForPhotos = modelForFunction("vision");
   if ((settings.apiKey || serverConfig.openRouterConfigured) && modelQueueSupportsVision("vision")) {
     mode = "limpieza basica + IA vision";
@@ -4905,14 +5205,48 @@ function looksLikePropertyPhoto(photo) {
   const value = `${photo.name || ""} ${photo.url || ""}`.toLowerCase();
   const bad = [
     "logo", "avatar", "profile", "perfil", "map", "mapa", "staticmap", "icon", "sprite", "placeholder", "blank", "default", "favicon",
-    "marker", "pin", "agency", "agencia", "banner", "facebook", "instagram", "whatsapp", "youtube", "google", "apple", "appstore",
-    "app-store", "playstore", "googleplay", "google-play", "store", "disponible", "available", "download", "descarga", "flag", "flags",
-    "bandera", "country", "countries", "pais", "país", "search", "lupa", "magnif", "qr", "badge", "award", "medal",
+    "marker", "pin", "agency", "agencia", "inmobiliaria", "negocios-inmobiliarios", "negociosinmobiliarios", "banner", "facebook", "instagram",
+    "whatsapp", "youtube", "google", "apple", "appstore", "app-store", "playstore", "googleplay", "google-play", "store", "disponible",
+    "available", "download", "descarga", "flag", "flags", "bandera", "country", "countries", "pais", "país", "search", "lupa", "magnif",
+    "qr", "badge", "award", "medal", "sin-imagen", "sinimagen", "no-image", "noimage", "sin_foto", "sinfoto", "watermark", "marca-agua",
+    // portales/agencias comunes en UY que suben logos como fotos
+    "parietti", "infocasas-logo", "mercadolibre-logo", "gallito", "properati-logo", "brand", "isotipo", "header", "footer", "cover-agency",
   ];
   if (bad.some((token) => value.includes(token))) return false;
-  if (/\b(16x16|32x32|48x48|64x64|80x80|100x100|150x150|200x200)\b/i.test(value)) return false;
+  if (/\b(16x16|32x32|48x48|64x64|80x80|100x100|120x120|150x150|200x200|250x250)\b/i.test(value)) return false;
   if (!/\.(jpe?g|png|webp)(\?|$)/i.test(value)) return false;
   return true;
+}
+
+// Carga la imagen y devuelve dimensiones reales (o null si falla/timeout).
+function measureImage(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    let done = false;
+    const finish = (result) => { if (!done) { done = true; resolve(result); } };
+    const timer = setTimeout(() => finish(null), 6000);
+    img.onload = () => { clearTimeout(timer); finish({ w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onerror = () => { clearTimeout(timer); finish(null); };
+    img.src = url;
+  });
+}
+
+// Los logos/íconos son casi cuadrados y/o chicos; las fotos de propiedad son
+// apaisadas (4:3, 16:9) y grandes. Mide y marca las que parecen logo.
+async function findLogoLikePhotos(photos) {
+  const results = await Promise.all(photos.map(async (photo) => {
+    const dims = await measureImage(photoSrc(photo));
+    if (!dims || !dims.w || !dims.h) return null;
+    const ratio = dims.w / dims.h;
+    const longSide = Math.max(dims.w, dims.h);
+    const nearSquare = ratio >= 0.82 && ratio <= 1.22;
+    const tiny = longSide < 500;
+    // Logo típico: cuadrado (aunque sea grande) o cualquier imagen muy chica.
+    if ((nearSquare && longSide < 900) || tiny) return photo.id;
+    return null;
+  }));
+  return results.filter(Boolean);
 }
 
 async function generateReport() {
@@ -5116,6 +5450,21 @@ function bindEvents() {
   });
   $("#aiSearchBtn").addEventListener("click", runAiPropertySearch);
   $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
+  $("#openQuizBtn")?.addEventListener("click", openQuiz);
+  $("#quizCloseBtn")?.addEventListener("click", () => $("#quizDialog")?.close());
+  $("#quizBody")?.addEventListener("click", (event) => {
+    const value = event.target.dataset.quizValue;
+    if (value !== undefined) {
+      quizAnswers[QUIZ_QUESTIONS[quizStep].key] = value;
+      quizStep += 1;
+      renderQuizStep();
+      return;
+    }
+    if (event.target.closest(".quiz-restart")) { quizStep = 0; quizAnswers = {}; renderQuizStep(); return; }
+    if (event.target.closest(".quiz-see-all")) { applyQuizToSearch(); return; }
+    const openId = event.target.closest("[data-quiz-open]")?.dataset.quizOpen;
+    if (openId) { $("#quizDialog")?.close(); openPropertyModal(openId); }
+  });
   $(".roomix-search-input")?.addEventListener("click", (event) => {
     setSearchPanelOpen(true);
     if (!event.target.closest("input, button, label")) $("#aiSearchInput")?.focus();

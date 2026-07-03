@@ -114,7 +114,10 @@
                       <button class="active" type="button" data-search-mode="ai">IA</button>
                       <button type="button" data-search-mode="filters">Filtros <span id="activeFilterCount">0</span></button>
                     </div>
-                    <button id="clearAiSearchBtn">Limpiar</button>
+                    <div class="search-actions-right">
+                      <button id="openQuizBtn" class="quiz-launch">✦ Encontrá tu match</button>
+                      <button id="clearAiSearchBtn">Limpiar</button>
+                    </div>
                   </div>
                 </div>
                 <div id="suggestionChips" class="suggestion-chips-row">
@@ -629,6 +632,19 @@
           <button id="saveManualScoreBtn" value="default" class="primary">Aplicar</button>
         </menu>
       </form>
+    </dialog>
+
+    <dialog id="quizDialog" class="quiz-dialog">
+      <div class="dialog-card quiz-card">
+        <div class="quiz-head">
+          <div>
+            <p class="eyebrow">Encontrá tu match</p>
+            <h2 id="quizTitle">¿Qué propiedad es para vos?</h2>
+          </div>
+          <button id="quizCloseBtn" type="button" aria-label="Cerrar">✕</button>
+        </div>
+        <div id="quizBody" class="quiz-body"></div>
+      </div>
     </dialog>
 
     <dialog id="loginDialog">
