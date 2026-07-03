@@ -48,8 +48,8 @@
   --t-small: 12px;
   --t-caps: 10px;
   /* geometry */
-  --r-card: 4px;
-  --r-tight: 2px;
+  --r-card: 10px;
+  --r-tight: 6px;
   --r-pill: 999px;
   /* elevation (warm-tinted) */
   --e1: 0 1px 3px rgba(36, 39, 42, 0.07), 0 4px 14px rgba(36, 39, 42, 0.04);
@@ -68,6 +68,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
 body {
   margin: 0;
@@ -585,9 +586,25 @@ body[data-view="marketplace"] .pill-nav { display: flex; }
   background: linear-gradient(145deg, var(--night) 0%, var(--night-2) 55%, var(--night) 100%);
   border-bottom: none;
   min-height: 400px;
-  padding: 64px var(--pad-x-wide);
+  padding: 64px var(--pad-x-wide) 96px;
   position: relative;
   margin: 0;
+  overflow: hidden;
+}
+/* marca de agua: la M como plano arquitectónico con líneas guía */
+#view-marketplace .panel-head::after {
+  content: '';
+  position: absolute;
+  right: clamp(-60px, 5vw, 140px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(420px, 42vw);
+  aspect-ratio: 1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23EFEBDF'%3E%3Cg stroke-width='0.3' opacity='0.7'%3E%3Cline x1='2' y1='14' x2='46' y2='14'/%3E%3Cline x1='2' y1='36' x2='46' y2='36'/%3E%3Cline x1='12' y1='4' x2='12' y2='44'/%3E%3Cline x1='36' y1='4' x2='36' y2='44'/%3E%3C/g%3E%3Cpath d='M12 36 V14 L24 27 36 14 V36' stroke-width='1.1' stroke-linecap='square' stroke-linejoin='miter'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
+  opacity: 0.08;
+  pointer-events: none;
 }
 #view-marketplace .panel-head::before {
   content: '';
@@ -626,7 +643,7 @@ body[data-view="marketplace"] .pill-nav { display: flex; }
 .ai-search-hero {
   background: var(--cream);
   border-bottom: 1px solid var(--line);
-  padding: 44px var(--pad-x-wide) 48px;
+  padding: 0 var(--pad-x-wide) 44px;
   position: relative;
 }
 
@@ -641,7 +658,8 @@ body[data-view="marketplace"] .pill-nav { display: flex; }
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--r-card);
-  box-shadow: var(--e1);
+  box-shadow: var(--e2);
+  margin-top: -31px;
   cursor: text;
   transition: border-color var(--fast), box-shadow var(--fast);
 }
@@ -2316,4 +2334,75 @@ body[data-view="marketplace"] .offline-banner { top: 76px; }
     animation-iteration-count: 1;
     transition-duration: 0.01ms;
   }
+}
+
+/* ── 25 · SMOOTHNESS PASS — motion, feedback, active-search bar ────── */
+
+/* Card entrance (JS sets per-card animation-delay; keyframes live here) */
+.animate-in {
+  animation: card-in 480ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(14px); }
+}
+
+/* Price gets the brand accent */
+.public-price { color: var(--gold-deep); }
+
+/* Tactile buttons: raise on hover, settle on press */
+button.primary:hover, .primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(111, 122, 103, 0.35);
+}
+button:active { transform: translateY(0) scale(0.985); }
+button:disabled:active { transform: none; }
+
+/* Search button while the AI runs */
+#aiSearchBtn.searching { animation: btn-pulse 1.1s ease-in-out infinite; pointer-events: none; }
+@keyframes btn-pulse { 50% { opacity: 0.55; } }
+
+/* Results eyebrow: short accent rule after the label */
+.results-toolbar .eyebrow { display: flex; align-items: center; gap: 12px; }
+.results-toolbar .eyebrow::after {
+  content: '';
+  width: 56px;
+  height: 1px;
+  background: var(--gold);
+  opacity: 0.55;
+}
+
+/* Active-search bar above the grid: readable + dismissible in place */
+.ai-result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 400;
+  font-style: normal;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r-tight);
+  padding: 10px 14px;
+  margin-bottom: 24px;
+  box-shadow: var(--e1);
+}
+.search-clear-chip {
+  font-size: 11px;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+  min-height: 0;
+  white-space: nowrap;
+}
+.search-clear-chip:hover { background: var(--bad); border-color: var(--bad); color: var(--paper); }
+
+/* Floating search: mobile geometry */
+@media (max-width: 640px) {
+  #view-marketplace .panel-head { padding-bottom: 72px; }
+  .ai-search-hero { padding-top: 0; }
 }

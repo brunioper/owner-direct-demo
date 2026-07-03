@@ -1287,7 +1287,9 @@ function renderMarketplace() {
   if (aiSummary) {
     const showSummary = Boolean(publicExplanation && state.aiSearchIds);
     aiSummary.classList.toggle("hidden", !showSummary);
-    aiSummary.textContent = showSummary ? publicExplanation : "";
+    aiSummary.innerHTML = showSummary
+      ? `<span>${escapeHtml(publicExplanation)}</span><button type="button" class="search-clear-chip" data-clear-search title="Quitar búsqueda y ver todo">✕ Quitar búsqueda</button>`
+      : "";
   }
 
   renderMarketContextBar(properties);
@@ -4367,18 +4369,30 @@ async function* streamSearchCall(messages) {
   }
 }
 
+// Mientras el usuario escribe: matcher LOCAL instantáneo (sin red, sin lag).
+// La IA completa solo corre al confirmar (Enter / botón Buscar).
 function scheduleAiSearch() {
   clearTimeout(aiSearchDebounceTimer);
   aiSearchDebounceTimer = setTimeout(() => {
-    if ($("#aiSearchInput")?.value.trim().length >= 3) runAiPropertySearch(false);
-  }, 300);
+    const query = ($("#aiSearchInput")?.value || "").trim();
+    if (query.length < 3) return;
+    const source = state.properties.filter((p) => p.status === "published");
+    const local = localSearchMatch(query, source);
+    if (!local.hasCriteria) return;
+    state.aiSearchIds = local.ids;
+    state.aiSearchExplanation = local.explanation;
+    state.clientPage = 0;
+    renderMarketplace();
+  }, 140);
 }
 
 async function runAiPropertySearch(saveToHistory = true) {
   const query = $("#aiSearchInput").value.trim();
   if (!query && !aiSearchImageDataUrl) return;
   clearTimeout(aiSearchDebounceTimer);
-  $("#aiSearchBtn").disabled = true;
+  const searchBtn = $("#aiSearchBtn");
+  searchBtn.disabled = true;
+  searchBtn.classList.add("searching");
   setAiSearchProgress(true);
   if (saveToHistory) rememberSearch(query);
   try {
@@ -4458,7 +4472,10 @@ async function runAiPropertySearch(saveToHistory = true) {
   } finally {
     setAiSearchProgress(false);
     setStreamingText("");
-    $("#aiSearchBtn").disabled = false;
+    searchBtn.disabled = false;
+    searchBtn.classList.remove("searching");
+    // Búsqueda explícita → llevar al usuario directo a los resultados.
+    if (saveToHistory) $(".results-toolbar")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -5107,6 +5124,19 @@ function bindEvents() {
   $("#aiSearchInput").addEventListener("input", () => {
     setSearchPanelOpen(true);
     renderSearchUi();
+    const value = $("#aiSearchInput").value.trim();
+    // Vaciar el campo restaura todas las propiedades — sin tener que apretar Limpiar.
+    if (!value && !aiSearchImageDataUrl) {
+      clearTimeout(aiSearchDebounceTimer);
+      if (state.aiSearchIds || state.aiSearchExplanation) {
+        state.aiSearchIds = null;
+        state.aiSearchExplanation = "";
+        state.clientPage = 0;
+        saveState();
+        renderMarketplace();
+      }
+      return;
+    }
     scheduleAiSearch();
   });
   document.addEventListener("click", (event) => {
@@ -5168,6 +5198,13 @@ function bindEvents() {
   });
   $("#aiSearchInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runAiPropertySearch();
+    if (event.key === "Escape") {
+      clearAiSearch();
+      event.target.blur();
+    }
+  });
+  $("#aiResultSummary")?.addEventListener("click", (event) => {
+    if ("clearSearch" in event.target.dataset) clearAiSearch();
   });
   $("#aiSearchImageInput").addEventListener("change", async (event) => {
     const [file] = event.target.files;
