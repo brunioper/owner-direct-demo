@@ -1570,15 +1570,32 @@ function readNeighborhood(jsonLd, metadata, text) {
   return candidates.find((value) => !/uruguay|venta|alquiler|apartamento|casa/i.test(value)) || null;
 }
 
+// Descarta valores numéricos fuera de rango razonable (evita cargar basura).
+function saneNumber(value, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+}
+
 function normalizeUruguayData(data, text) {
   const neighborhood = readKnownNeighborhood(`${data.title || ""} ${data.description || ""} ${text}`) || data.neighborhood;
   const city = inferUruguayCity(neighborhood, data.city, text);
-  const extras = Array.isArray(data.extras) ? data.extras.filter((item) => item.value && !/preg[uú]ntale/i.test(item.value)) : [];
+  const extras = Array.isArray(data.extras)
+    ? data.extras.filter((item) => item.label && item.value && !/preg[uú]ntale|consultar/i.test(item.value))
+    : [];
   return {
     ...data,
+    // Rangos sanos para Uruguay — cualquier cosa fuera se descarta (null).
+    bedrooms: saneNumber(data.bedrooms, 0, 15),
+    bathrooms: saneNumber(data.bathrooms, 0, 15),
+    parking: saneNumber(data.parking, 0, 15),
+    builtArea: saneNumber(data.builtArea, 8, 5000),
+    landArea: saneNumber(data.landArea, 8, 200000),
+    totalArea: saneNumber(data.totalArea, 8, 200000),
+    price: saneNumber(data.price, 1000, 90000000),
+    priceUsd: saneNumber(data.priceUsd, 1000, 90000000),
+    commonFees: saneNumber(normalizeCommonFees(data.commonFees, text), 0, 20000),
     neighborhood,
     city,
-    commonFees: normalizeCommonFees(data.commonFees, text),
     extras,
   };
 }
@@ -1667,65 +1684,101 @@ function readPropertyType(text) {
   return null;
 }
 
+// Campos "extra" tipados. Cada uno sabe cómo extraer y validar su valor, para
+// no volcar prosa/basura del blob de texto scrapeado.
+// type: "bool" (presencia → Sí), "years" (número de años), "enum" (valor de una
+// lista cerrada), "short" (texto corto validado estrictamente).
+const EXTRA_FIELDS = [
+  { label: "Estado", type: "enum", values: ["a estrenar", "excelente", "muy bueno", "bueno", "reciclado", "a reciclar", "a nuevo", "en construcción", "en pozo"] },
+  { label: "Orientación", type: "enum", values: ["norte", "sur", "este", "oeste", "noreste", "noroeste", "sureste", "suroeste"] },
+  { label: "Disposición", type: "enum", values: ["al frente", "contrafrente", "interior", "lateral"] },
+  { label: "Antigüedad", type: "years", aliases: ["Antiguedad"] },
+  { label: "Garajes", type: "count", aliases: ["Cocheras", "Garaje", "Cochera"] },
+  { label: "Ambientes", type: "count" },
+  { label: "Plantas", type: "count", aliases: ["Cantidad de plantas", "Cantidad de pisos", "Pisos"] },
+  { label: "Vista al mar", type: "bool" },
+  { label: "Barrio privado", type: "bool", aliases: ["Barrio cerrado"] },
+  { label: "Penthouse", type: "bool" },
+  { label: "Apto para oficina", type: "bool" },
+  { label: "Acepta permuta", type: "bool" },
+  { label: "Parrillero", type: "bool", aliases: ["Barbacoa"] },
+  { label: "Piscina", type: "bool", aliases: ["Pileta"] },
+  { label: "Jardín", type: "bool", aliases: ["Jardin"] },
+  { label: "Terraza", type: "bool" },
+  { label: "Amueblado", type: "bool", aliases: ["Amoblado"] },
+  { label: "Aire acondicionado", type: "bool" },
+  { label: "Calefacción", type: "bool", aliases: ["Calefaccion"] },
+];
+
 function readExtraDetails(text) {
-  const labels = [
-    "Estado",
-    "Antigüedad",
-    "Antiguedad",
-    "Distancia al Mar",
-    "Vista al Mar",
-    "Financiación",
-    "Financiacion",
-    "M² edificados",
-    "M2 edificados",
-    "M² de terraza",
-    "M2 de terraza",
-    "Barrio Privado",
-    "Referencia",
-    "Zona",
-    "Sobre",
-    "Disposición",
-    "Disposicion",
-    "Gastos Comunes",
-    "Planta",
-    "Cantidad de Plantas",
-    "Acepta permuta",
-    "Vivienda Social",
-    "Apto para Oficina",
-    "Penthouse",
-    "Orientación",
-    "Orientacion",
-    "Garajes",
-    "Superficie total",
-    "Área privada",
-    "Area privada",
-    "Ambientes",
-    "Cantidad de pisos",
-    "Tipo de casa",
-    "Jardín",
-    "Jardin",
-    "Parrillero",
-    "Piscina",
-    "Antigüedad",
-    "Antiguedad",
-    "Bodegas",
-  ];
-  return labels
-    .map((label) => ({ label: normalizeLabel(label), value: readLooseValue(text, label) }))
-    .filter((item, index, items) => item.value && items.findIndex((other) => other.label === item.label) === index)
-    .slice(0, 28);
+  const out = [];
+  const seen = new Set();
+  for (const field of EXTRA_FIELDS) {
+    const value = extractTypedExtra(text, field);
+    if (value == null) continue;
+    const key = normalizeLabelText(field.label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: field.label, value });
+  }
+  return out.slice(0, 16);
 }
 
-function readLooseValue(text, label) {
-  const escaped = escapeReg(label).replace(/\\ /g, "\\s+");
-  const match = new RegExp(`${escaped}\\s+([^•|]{1,45})`, "i").exec(text);
-  if (!match) return null;
-  const value = match[1]
+function extractTypedExtra(text, field) {
+  const labels = [field.label, ...(field.aliases || [])];
+  if (field.type === "bool") {
+    // La sola presencia del término (o "Sí" junto a él) indica que la tiene.
+    const present = labels.some((l) => new RegExp(`\\b${labelPattern(l)}\\b`, "i").test(text));
+    if (!present) return null;
+    // No emitir si el texto dice explícitamente "sin <feature>" o "no <feature>".
+    const negated = labels.some((l) => new RegExp(`\\b(sin|no)\\s+${labelPattern(l)}`, "i").test(text));
+    return negated ? null : "Sí";
+  }
+  // valor tras el label
+  const raw = firstLabeledValue(text, labels);
+  if (raw == null) return null;
+  if (field.type === "years") {
+    const y = Number(String(raw).match(/\d{1,3}/)?.[0]);
+    return Number.isFinite(y) && y >= 0 && y <= 150 ? `${y} años` : null;
+  }
+  if (field.type === "count") {
+    const n = Number(String(raw).match(/\d{1,3}/)?.[0]);
+    return Number.isFinite(n) && n >= 1 && n <= 50 ? String(n) : null;
+  }
+  if (field.type === "enum") {
+    const found = (field.values || []).find((v) => new RegExp(`\\b${labelPattern(v)}\\b`, "i").test(raw));
+    return found ? capitalizeFirst(found) : null;
+  }
+  return cleanShortValue(raw);
+}
+
+function firstLabeledValue(text, labels) {
+  for (const label of labels) {
+    const escaped = labelPattern(label);
+    const match = new RegExp(`${escaped}\\s*:?\\s*([^•|\\n]{1,40})`, "i").exec(text);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+// Rechaza prosa y ruido: valores cortos, sin puntuación de oración, sin URLs,
+// sin otros labels adentro.
+function cleanShortValue(raw) {
+  let value = String(raw || "")
     .replace(/\s{2,}/g, " ")
-    .replace(/\b(Tipo de Propiedad|Estado|Baños|Dormitorios|Garajes|Zona)\b.*$/i, "")
+    .replace(/\b(Tipo de Propiedad|Estado|Baños|Dormitorios|Garajes|Zona|Precio|USD|Descripción)\b.*$/i, "")
     .trim();
-  if (!value || value === "¡Pregúntale!" || value === "Preguntale") return null;
+  if (!value) return null;
+  if (value.length > 32) return null;
+  if (value.split(/\s+/).length > 5) return null;
+  if (/[.:{}\[\]"<>|]|https?:|www\.|preg[uú]ntale|consultar|click|whatsapp/i.test(value)) return null;
+  if (/^[\d\s.,-]+$/.test(value) && value.replace(/\D/g, "").length > 7) return null; // ids/teléfonos
   return value;
+}
+
+function capitalizeFirst(value = "") {
+  const v = String(value).trim();
+  return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
 }
 
 function normalizeLabel(label) {

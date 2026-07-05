@@ -1392,10 +1392,10 @@ function renderMarketplace() {
         <strong class="public-price">${formatUsd(Number(property.price))}</strong>
         <p class="card-usd-m2">${pricePerM2Label(property)}</p>
         <div class="card-stats-row">
-          <span>${property.bedrooms || 0} dorm.</span>
-          <span>${property.bathrooms || 0} baños</span>
-          <span>${builtAreaForValue(property) || "--"} m²</span>
-          ${property.landArea ? `<span>${property.landArea} m² terreno</span>` : ""}
+          ${Number(property.bedrooms) ? `<span>${property.bedrooms} dorm.</span>` : ""}
+          ${Number(property.bathrooms) ? `<span>${property.bathrooms} baños</span>` : ""}
+          ${builtAreaForValue(property) ? `<span>${builtAreaForValue(property)} m²</span>` : ""}
+          ${Number(property.landArea) ? `<span>${property.landArea} m² terreno</span>` : ""}
         </div>
         <div class="card-footer-row">
           <span class="photo-pill ${pillCls}">${photoPct}% fotos</span>
@@ -2188,11 +2188,12 @@ function renderPropertyModal() {
         <p class="trust-line">Datos declarados por el propietario · Verificables con documentación adjunta</p>
       </div>
       <div class="summary-pills">
-        <span>${formatUsd(Number(property.price))}</span>
+        ${Number(property.price) ? `<span>${formatUsd(Number(property.price))}</span>` : ""}
         ${property.score ? `<span>${scoreDial(property.score)} Score OD</span>` : ""}
-        <span>${property.bedrooms || 0} dorm.</span>
-        <span>${property.bathrooms || 0} baños</span>
-        <span>${builtAreaForValue(property) || "--"} m²</span>
+        ${Number(property.bedrooms) ? `<span>${property.bedrooms} dorm.</span>` : ""}
+        ${Number(property.bathrooms) ? `<span>${property.bathrooms} baños</span>` : ""}
+        ${builtAreaForValue(property) ? `<span>${builtAreaForValue(property)} m²</span>` : ""}
+        ${Number(property.landArea) ? `<span>${property.landArea} m² terreno</span>` : ""}
       </div>
     </div>
     <div class="modal-tabs">
@@ -3028,8 +3029,27 @@ function renderPublicExtras(property) {
   `;
 }
 
+// Filtra extras basura: valores largos, con prosa, URLs, o placeholders.
+function sanitizeExtras(extras) {
+  const seen = new Set();
+  return (extras || []).filter((item) => {
+    if (!item || !item.label || item.value === "" || item.value == null) return false;
+    const value = String(item.value).trim();
+    const label = String(item.label).trim();
+    if (!value || value.length > 40) return false;
+    if (value.split(/\s+/).length > 6) return false;
+    if (/https?:|www\.|preg[uú]ntale|consultar|click|\{|\}|\[|\]|["<>|]/i.test(value)) return false;
+    if (/^[\d\s.,-]+$/.test(value) && value.replace(/\D/g, "").length > 8) return false;
+    if (normalizeText(value) === normalizeText(label)) return false;
+    const key = normalizeText(label);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 16);
+}
+
 function renderPublicExtrasRows(property) {
-  return (property.extras || []).filter((item) => item.label && item.value).map((item) => `
+  return sanitizeExtras(property.extras || []).filter((item) => item.label && item.value).map((item) => `
     <div class="extra-row">
       <span>${escapeHtml(item.label)}</span>
       <strong>${escapeHtml(item.value)}</strong>
@@ -5056,14 +5076,16 @@ function applyScrapedData(scraped) {
   property.mapUrl = data.mapUrl || property.mapUrl;
   hydrateCoordinatesFromMapUrl(property);
   property.type = normalizePropertyType(data.type || property.type);
-  property.bedrooms = data.bedrooms ?? property.bedrooms;
-  property.bathrooms = data.bathrooms ?? property.bathrooms;
-  property.parking = data.parking ?? property.parking;
-  property.builtArea = data.builtArea ?? property.builtArea;
-  property.landArea = data.landArea ?? property.landArea;
-  property.commonFees = data.commonFees ?? property.commonFees;
-  property.yearBuilt = data.yearBuilt ?? property.yearBuilt;
-  property.extras = mergeExtras(property.extras || [], data.extras || []);
+  // Clamp defensivo: si el server devolvió algo fuera de rango, no lo cargamos.
+  const clamp = (value, min, max) => { const n = Number(value); return Number.isFinite(n) && n >= min && n <= max ? n : null; };
+  property.bedrooms = clamp(data.bedrooms, 0, 15) ?? property.bedrooms;
+  property.bathrooms = clamp(data.bathrooms, 0, 15) ?? property.bathrooms;
+  property.parking = clamp(data.parking, 0, 15) ?? property.parking;
+  property.builtArea = clamp(data.builtArea, 8, 5000) ?? property.builtArea;
+  property.landArea = clamp(data.landArea, 8, 200000) ?? property.landArea;
+  property.commonFees = clamp(data.commonFees, 0, 20000) ?? property.commonFees;
+  property.yearBuilt = clamp(data.yearBuilt, 1850, new Date().getFullYear() + 2) ?? property.yearBuilt;
+  property.extras = sanitizeExtras(mergeExtras(property.extras || [], data.extras || []));
   if (!property.builtArea) property.builtArea = builtAreaForValue(property) || "";
   // Ambientes automáticos desde dorm./baños + extras detectados (parrillero, garaje…)
   if ((property.rooms || []).length === 0 && (Number(property.bedrooms) || Number(property.bathrooms))) {
