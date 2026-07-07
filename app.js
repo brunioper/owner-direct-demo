@@ -20,6 +20,45 @@ function spanishRoomName(name = "") {
   return raw;
 }
 
+// Barrios conocidos + su departamento. Para corregir detecciones imprecisas
+// (ej: una casa de "Carrasco" etiquetada como "Barra de Carrasco").
+const KNOWN_NEIGHBORHOODS_CLIENT = [
+  ["Colinas de Carrasco", "Canelones"], ["Barra de Carrasco", "Canelones"], ["Carrasco", "Montevideo"],
+  ["Punta Carretas", "Montevideo"], ["Punta Gorda", "Montevideo"], ["Parque Rodó", "Montevideo"],
+  ["Ciudad Vieja", "Montevideo"], ["La Blanqueada", "Montevideo"], ["Tres Cruces", "Montevideo"],
+  ["Punta del Este", "Maldonado"], ["El Pinar", "Canelones"], ["Pinar", "Canelones"],
+  ["Pocitos", "Montevideo"], ["Malvín", "Montevideo"], ["Malvin", "Montevideo"], ["Buceo", "Montevideo"],
+  ["Cordón", "Montevideo"], ["Centro", "Montevideo"], ["Prado", "Montevideo"], ["Atahualpa", "Montevideo"],
+  ["Aguada", "Montevideo"], ["Lagomar", "Canelones"], ["Solymar", "Canelones"], ["Shangrila", "Canelones"],
+  ["La Barra", "Maldonado"], ["Manantiales", "Maldonado"],
+];
+function matchKnownNeighborhoodClient(text) {
+  if (!text) return null;
+  const found = KNOWN_NEIGHBORHOODS_CLIENT
+    .map(([name]) => name)
+    .filter((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
+  if (!found.length) return null;
+  return found.sort((a, b) => b.length - a.length)[0];
+}
+// Corrige barrios scrapeados imprecisos: si el TÍTULO indica un barrio conocido
+// distinto del guardado (y el guardado no aparece en el título), confiar en el
+// título. Ajusta también el departamento. Solo actúa sobre fichas scrapeadas.
+function reconcileNeighborhood(property) {
+  if (!property || !property.sourceUrl) return;
+  // El título es autoritativo sobre la propiedad. Si nombra un barrio conocido
+  // distinto del guardado, confiar en el título (el guardado suele venir de una
+  // mención de pasada en el cuerpo/agencia).
+  const titleHood = matchKnownNeighborhoodClient(property.title);
+  if (!titleHood) return;
+  const currentHood = matchKnownNeighborhoodClient(property.neighborhood || "");
+  if (currentHood && normalizeText(currentHood) === normalizeText(titleHood)) return; // ya coinciden
+  // Restringir a familias con ambigüedad de substring para no tocar otros casos.
+  if (!/carrasco|pinar|barra/i.test(`${titleHood} ${currentHood || property.neighborhood || ""}`)) return;
+  property.neighborhood = titleHood;
+  const dept = KNOWN_NEIGHBORHOODS_CLIENT.find(([name]) => name === titleHood)?.[1];
+  if (dept) property.city = dept;
+}
+
 const STORAGE_KEY = "od-demo-state-v1";
 const SETTINGS_KEY = "od-demo-settings-v1";
 const AI_CONFIG_KEY = "od-demo-ai-config-v1";
@@ -224,6 +263,8 @@ function ensurePropertyDefaults(property) {
   property.rooms ??= [];
   // Sanea nombres de ambiente que quedaron en inglés de scrapes anteriores.
   property.rooms.forEach((r) => { if (r && r.name) r.name = spanishRoomName(r.name); });
+  // Corrige barrios scrapeados imprecisos (Carrasco vs Barra/Colinas de Carrasco).
+  reconcileNeighborhood(property);
   property.photos ??= [];
   property.videos ??= [];
   property.plans ??= [];
@@ -2228,8 +2269,8 @@ function renderPropertyModal() {
   if (property.neighborhood) {
     loadNeighborhoodData(property.neighborhood, property.city || MARKET_CONFIG.defaultCity);
   }
-  // Async: generate the Zona guide (nearby places + transport) if not cached.
-  if (!property.zonaGuide) loadZonaGuide(property);
+  // Async: cargar lugares reales de la zona (OSM). Refresca guías de formato viejo.
+  if (!property.zonaGuide || !property.zonaGuide.fetchedAt) loadZonaGuide(property);
 
   // Wire comparable card clicks
   content.querySelectorAll("[data-comparable-id]").forEach((el) => {
@@ -2627,98 +2668,104 @@ const ZONA_CATEGORIES = [
 
 function renderZonaPanel(property) {
   const guide = property.zonaGuide;
-  const barrio = escapeHtml(property.neighborhood || MARKET_CONFIG.defaultCity);
-  if (!guide) {
+  const barrio = escapeHtml(property.neighborhood || property.city || MARKET_CONFIG.defaultCity);
+  const hasCoords = Number.isFinite(Number(property.lat)) && Number.isFinite(Number(property.lng)) && property.lat !== "" && property.lng !== "";
+  const mapsDir = hasCoords ? `https://www.google.com/maps/dir/?api=1&destination=${property.lat},${property.lng}` : "";
+  const mapsAround = hasCoords ? `https://www.openstreetmap.org/#map=16/${property.lat}/${property.lng}` : "";
+
+  // Sin coordenadas no podemos mostrar lugares REALES — lo decimos honestamente
+  // en vez de inventar nombres.
+  if (!hasCoords) {
     return `
-      <div class="zona-loading" id="zonaLoading">
-        <div class="modal-section">
-          <h3>Zona y entorno</h3>
-          <p class="public-description">Armando la guía de <strong>${barrio}</strong>: lugares cercanos, colegios, verde y cómo llegar…</p>
-          <div class="skeleton-line wide"></div><div class="skeleton-line"></div><div class="skeleton-line wide"></div>
+      <div class="modal-section">
+        <h3>Zona y entorno</h3>
+        <div class="zona-empty">
+          <p><strong>Todavía no hay ubicación exacta cargada.</strong></p>
+          <p class="public-description">Para mostrar lugares reales cercanos (colegios, parques, comercios, salud) y cómo llegar, el propietario tiene que cargar la dirección o el link de mapa de la propiedad. No inventamos lugares.</p>
         </div>
       </div>`;
   }
+
+  if (!guide || !guide.fetchedAt) {
+    return `
+      <div class="modal-section" id="zonaLoading">
+        <h3>Zona y entorno</h3>
+        <p class="public-description">Buscando lugares reales cerca de <strong>${barrio}</strong> en OpenStreetMap…</p>
+        <div class="skeleton-line wide"></div><div class="skeleton-line"></div><div class="skeleton-line wide"></div>
+      </div>`;
+  }
+
+  if (!guide.available) {
+    return `
+      <div class="modal-section">
+        <h3>Zona y entorno</h3>
+        <p class="public-description">No se pudo consultar el mapa de lugares cercanos en este momento (${escapeHtml(guide.reason || "servicio no disponible")}).</p>
+        <div class="modal-actions-row">
+          <a class="primary" href="${escapeAttr(mapsAround)}" target="_blank" rel="noreferrer">Ver la zona en el mapa</a>
+          <a href="${escapeAttr(mapsDir)}" target="_blank" rel="noreferrer">Cómo llegar</a>
+        </div>
+      </div>`;
+  }
+
+  const totalPois = ZONA_CATEGORIES.reduce((n, c) => n + (guide.nearby?.[c.key]?.length || 0), 0);
   const nearby = ZONA_CATEGORIES.map((cat) => {
-    const items = (guide.nearby?.[cat.key] || []).filter(Boolean).slice(0, 5);
+    const items = (guide.nearby?.[cat.key] || []).filter((it) => it && it.name).slice(0, 5);
     if (!items.length) return "";
     return `
       <div class="zona-cat">
         <div class="zona-cat-head"><span class="zona-icon" aria-hidden="true">${cat.icon}</span><h4>${cat.label}</h4></div>
         <ul class="zona-list">
-          ${items.map((it) => `<li><span>${escapeHtml(it.name || it)}</span>${it.walk ? `<em>${escapeHtml(it.walk)}</em>` : ""}</li>`).join("")}
+          ${items.map((it) => `<li><span>${escapeHtml(it.name)}</span>${it.walk ? `<em>${escapeHtml(it.walk)}</em>` : ""}</li>`).join("")}
         </ul>
       </div>`;
   }).join("");
 
-  const transport = (guide.transport || []).filter(Boolean).slice(0, 6);
-  const transportHtml = transport.length ? `
+  const transport = (guide.transport || []).filter((t) => t && t.name);
+  const transportHtml = `
     <div class="modal-section">
       <h3>Cómo llegar</h3>
-      <div class="zona-transport">
-        ${transport.map((t) => `<div class="transport-row"><span class="transport-mode">${escapeHtml(t.mode || "")}</span><span>${escapeHtml(t.detail || t)}</span></div>`).join("")}
+      ${transport.length ? `
+        <p class="public-description" style="margin-bottom:12px">Paradas de ómnibus más cercanas (datos reales de OpenStreetMap):</p>
+        <div class="zona-transport">
+          ${transport.map((t) => `<div class="transport-row"><span class="transport-mode">Parada</span><span>${escapeHtml(t.name)}</span><em>${escapeHtml(t.walk)}</em></div>`).join("")}
+        </div>` : `<p class="public-description">No hay paradas mapeadas en el radio inmediato.</p>`}
+      <div class="modal-actions-row" style="margin-top:14px">
+        <a class="primary" href="${escapeAttr(mapsDir)}" target="_blank" rel="noreferrer">Abrir "Cómo llegar" en Google Maps</a>
+        <a href="${escapeAttr(mapsAround)}" target="_blank" rel="noreferrer">Explorar la zona</a>
       </div>
-    </div>` : "";
+    </div>`;
 
   return `
     <div class="modal-section">
       <h3>Zona y entorno</h3>
-      ${guide.summary ? `<p class="public-description">${escapeHtml(guide.summary)}</p>` : ""}
-      ${guide.lifestyle ? `<div class="zona-lifestyle">${escapeHtml(guide.lifestyle)}</div>` : ""}
-      <div class="zona-grid">${nearby || `<p class="public-description">Sin lugares cercanos cargados.</p>`}</div>
+      <div class="zona-grid">${nearby || `<p class="public-description">No se encontraron lugares con nombre en el radio de 1,6 km.</p>`}</div>
     </div>
     ${transportHtml}
-    <p class="zona-disclaimer">Información orientativa generada para ${barrio}. Verificá distancias y horarios antes de decidir.</p>
+    <p class="zona-disclaimer">${totalPois} lugares reales dentro de ~1,6 km · Fuente: OpenStreetMap. Las distancias son en línea recta, verificá recorridos reales.</p>
   `;
 }
 
-// Genera la guía de zona (lugares cercanos + transporte). Cachea en la ficha.
+// Trae lugares REALES cercanos desde OpenStreetMap (vía /api/nearby). Nada de IA.
 async function loadZonaGuide(property) {
   if (property._zonaLoading) return;
+  if (!Number.isFinite(Number(property.lat)) || !Number.isFinite(Number(property.lng)) || property.lat === "" || property.lng === "") return;
   property._zonaLoading = true;
-  const context = `${property.neighborhood || ""}, ${property.city || MARKET_CONFIG.defaultCity}, ${MARKET_CONFIG.country}`;
   try {
-    const result = await callOpenRouter({
-      functionType: "search",
-      temperature: 0.3,
-      messages: [{
-        role: "user",
-        content: `Sos un guía inmobiliario local de ${MARKET_CONFIG.country}. Para una propiedad en ${context}, describí el entorno REAL de la zona. Respondé SOLO en español rioplatense y SOLO JSON:
-{
-  "summary": "2 oraciones sobre el perfil de la zona (a quién le sirve, ambiente)",
-  "lifestyle": "1 oración sobre estilo de vida",
-  "nearby": {
-    "parques": [{"name": string, "walk": "≈X min a pie/auto"}],
-    "colegios": [{"name": string, "walk": string}],
-    "salud": [{"name": string, "walk": string}],
-    "comercios": [{"name": string, "walk": string}],
-    "cultura": [{"name": string, "walk": string}]
-  },
-  "transport": [{"mode": "Auto"|"Ómnibus"|"Bici"|"A pie", "detail": "cómo llegar al centro / puntos clave y tiempo aprox"}]
-}
-Usá lugares y referencias reales o típicas de la zona. Si no conocés un nombre exacto, describí el tipo (ej: "Colegio bilingüe de la zona"). Máximo 4 por categoría.`,
-      }],
-    });
+    const response = await fetch(apiUrl(`/api/nearby?lat=${property.lat}&lng=${property.lng}`));
+    const data = await response.json();
     property.zonaGuide = {
-      summary: result.summary || "",
-      lifestyle: result.lifestyle || "",
-      nearby: result.nearby || {},
-      transport: Array.isArray(result.transport) ? result.transport : [],
-      generatedAt: new Date().toISOString(),
+      available: Boolean(data.available),
+      reason: data.reason || "",
+      source: data.source || "OpenStreetMap",
+      nearby: data.nearby || {},
+      transport: Array.isArray(data.transport) ? data.transport : [],
+      fetchedAt: new Date().toISOString(),
     };
   } catch (error) {
-    // Fallback determinístico usando datos del barrio ya cargados.
-    const nb = state.neighborhoodCache?.[normalizeText(property.neighborhood || "")];
-    property.zonaGuide = {
-      summary: nb?.description || `Zona de ${property.neighborhood || property.city || "la propiedad"}. Consultá el mapa y la ficha para más contexto.`,
-      lifestyle: "",
-      nearby: {},
-      transport: [],
-      degraded: true,
-    };
+    property.zonaGuide = { available: false, reason: error.message, nearby: {}, transport: [] };
   } finally {
     property._zonaLoading = false;
     saveState();
-    // Re-render solo si el modal sigue abierto en esta propiedad.
     if ($("#propertyModal")?.open && state.selectedId === property.id) {
       const panel = document.querySelector('[data-modal-panel="zona"]');
       if (panel) panel.innerHTML = renderZonaPanel(property);
@@ -5086,6 +5133,9 @@ function applyScrapedData(scraped) {
   property.commonFees = clamp(data.commonFees, 0, 20000) ?? property.commonFees;
   property.yearBuilt = clamp(data.yearBuilt, 1850, new Date().getFullYear() + 2) ?? property.yearBuilt;
   property.extras = sanitizeExtras(mergeExtras(property.extras || [], data.extras || []));
+  reconcileNeighborhood(property);
+  // La ubicación cambió → invalidar la guía de zona para recargar lugares reales.
+  property.zonaGuide = null;
   if (!property.builtArea) property.builtArea = builtAreaForValue(property) || "";
   // Ambientes automáticos desde dorm./baños + extras detectados (parrillero, garaje…)
   if ((property.rooms || []).length === 0 && (Number(property.bedrooms) || Number(property.bathrooms))) {

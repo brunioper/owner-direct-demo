@@ -135,6 +135,10 @@ const server = http.createServer(async (req, res) => {
       await handleSyncProperties(req, res);
       return;
     }
+    if (req.method === "GET" && parsed.pathname === "/api/nearby") {
+      await handleNearby(req, res);
+      return;
+    }
     if (req.method === "GET" && parsed.pathname === "/api/neighborhoods") {
       await handleGetNeighborhoods(req, res);
       return;
@@ -612,6 +616,108 @@ async function handleSyncProperties(req, res) {
     }
   }
   sendJson(res, 200, { configured: true, saved: true, count: rows.length });
+}
+
+// Lugares REALES cercanos desde OpenStreetMap (Overpass API, gratis, sin key).
+// Nada inventado: solo devuelve POIs con nombre propio y distancia calculada.
+const nearbyCache = new Map();
+async function handleNearby(req, res) {
+  const parsed = new URL(req.url, `http://${req.headers.host}`);
+  const lat = Number(parsed.searchParams.get("lat"));
+  const lng = Number(parsed.searchParams.get("lng"));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    sendJson(res, 400, { error: "Faltan coordenadas válidas (lat, lng)." });
+    return;
+  }
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = nearbyCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 24 * 3600 * 1000) {
+    sendJson(res, 200, { cached: true, ...cached.payload });
+    return;
+  }
+  const radius = 1600;
+  const q = `[out:json][timeout:20];
+(
+  node(around:${radius},${lat},${lng})[leisure~"^(park|garden|playground)$"][name];
+  way(around:${radius},${lat},${lng})[leisure~"^(park|garden)$"][name];
+  node(around:${radius},${lat},${lng})[amenity~"^(school|kindergarten|college|university)$"][name];
+  way(around:${radius},${lat},${lng})[amenity~"^(school|kindergarten|college|university)$"][name];
+  node(around:${radius},${lat},${lng})[amenity~"^(hospital|clinic|pharmacy|doctors)$"][name];
+  node(around:${radius},${lat},${lng})[shop~"^(supermarket|mall|convenience|bakery)$"][name];
+  node(around:${radius},${lat},${lng})[amenity~"^(marketplace|restaurant|cafe)$"][name];
+  node(around:${radius},${lat},${lng})[tourism~"^(museum|gallery|attraction)$"][name];
+  node(around:${radius},${lat},${lng})[amenity~"^(theatre|library|cinema)$"][name];
+  node(around:${radius},${lat},${lng})[highway=bus_stop][name];
+  node(around:${radius},${lat},${lng})[public_transport=platform][name];
+);
+out center 120;`;
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", "User-Agent": "MittiDemo/1.0" },
+      body: q,
+    });
+    if (!response.ok) {
+      sendJson(res, 200, { available: false, reason: `Overpass respondió ${response.status}`, nearby: {}, transport: [] });
+      return;
+    }
+    const data = await response.json();
+    const elements = Array.isArray(data.elements) ? data.elements : [];
+    const buckets = { parques: [], colegios: [], salud: [], comercios: [], cultura: [] };
+    const transport = [];
+    const seen = new Set();
+    for (const el of elements) {
+      const t = el.tags || {};
+      const name = t.name;
+      if (!name) continue;
+      const plat = el.lat ?? el.center?.lat;
+      const plng = el.lon ?? el.center?.lon;
+      if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+      const dedupe = `${name}|${plat.toFixed(3)}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      const meters = haversineMeters(lat, lng, plat, plng);
+      const item = { name, meters: Math.round(meters), walk: walkLabel(meters) };
+      if (t.highway === "bus_stop" || t.public_transport === "platform") { transport.push(item); continue; }
+      if (t.leisure) buckets.parques.push(item);
+      else if (/school|kindergarten|college|university/.test(t.amenity || "")) buckets.colegios.push(item);
+      else if (/hospital|clinic|pharmacy|doctors/.test(t.amenity || "")) buckets.salud.push(item);
+      else if (t.shop || /marketplace|restaurant|cafe/.test(t.amenity || "")) buckets.comercios.push(item);
+      else if (t.tourism || /theatre|library|cinema/.test(t.amenity || "")) buckets.cultura.push(item);
+    }
+    const trim = (arr) => arr.sort((a, b) => a.meters - b.meters).slice(0, 5);
+    const payload = {
+      available: true,
+      source: "OpenStreetMap",
+      nearby: {
+        parques: trim(buckets.parques),
+        colegios: trim(buckets.colegios),
+        salud: trim(buckets.salud),
+        comercios: trim(buckets.comercios),
+        cultura: trim(buckets.cultura),
+      },
+      transport: trim(transport).slice(0, 4),
+    };
+    nearbyCache.set(cacheKey, { at: Date.now(), payload });
+    sendJson(res, 200, payload);
+  } catch (error) {
+    sendJson(res, 200, { available: false, reason: error.message, nearby: {}, transport: [] });
+  }
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function walkLabel(meters) {
+  const min = Math.max(1, Math.round(meters / 80)); // ~4.8 km/h
+  if (meters < 1000) return `${Math.round(meters)} m · ${min} min a pie`;
+  return `${(meters / 1000).toFixed(1)} km · ${min} min a pie`;
 }
 
 async function handleGetNeighborhoods(req, res) {
@@ -1557,17 +1663,23 @@ function readLocationPart(jsonLd, metadata, index) {
 
 function readNeighborhood(jsonLd, metadata, text) {
   const address = jsonLd.address;
-  if (address && typeof address === "object") {
-    const locality = address.addressLocality || address.streetAddress;
-    if (locality && !/montevideo|canelones|maldonado|uruguay/i.test(locality)) return locality;
+  const locality = (address && typeof address === "object") ? (address.addressLocality || address.streetAddress || "") : "";
+  const title = metadata["og:title"] || metadata.title || "";
+  // Fuentes en orden de confianza: etiqueta de barrio > zona > dirección > título.
+  // El CUERPO del texto va último — ahí "Barra de Carrasco" suele aparecer solo
+  // como referencia de la agencia o de un lugar cercano, no como el barrio real.
+  const trustedSources = [readAfterLabel(text, "Barrio"), readAfterLabel(text, "Zona"), locality, title];
+  for (const source of trustedSources) {
+    const known = matchKnownNeighborhood(source);
+    if (known) return known;
   }
-  const candidates = [
-    readAfterLabel(text, "Barrio"),
-    readAfterLabel(text, "Zona"),
-    readFromTitle(metadata, 0),
-    readKnownNeighborhood(text),
-  ].filter(Boolean);
-  return candidates.find((value) => !/uruguay|venta|alquiler|apartamento|casa/i.test(value)) || null;
+  // Etiqueta explícita limpia que no sea basura.
+  for (const source of trustedSources.slice(0, 3)) {
+    const clean = cleanLocationValue(source);
+    if (clean && !/uruguay|venta|alquiler|apartamento|casa|inmobiliaria/i.test(clean)) return clean;
+  }
+  // Último recurso: barrio conocido en el cuerpo del texto.
+  return matchKnownNeighborhood(text);
 }
 
 // Descarta valores numéricos fuera de rango razonable (evita cargar basura).
@@ -1577,7 +1689,15 @@ function saneNumber(value, min, max) {
 }
 
 function normalizeUruguayData(data, text) {
-  const neighborhood = readKnownNeighborhood(`${data.title || ""} ${data.description || ""} ${text}`) || data.neighborhood;
+  // Prioridad por fuente: barrio ya detectado (etiqueta/título) > título > cuerpo.
+  // NO reconcatenar todo en un blob: eso hacía que una mención de pasada a
+  // "Barra de Carrasco" en el cuerpo pisara un barrio "Carrasco" real del título.
+  const neighborhood =
+    matchKnownNeighborhood(data.neighborhood)
+    || data.neighborhood
+    || matchKnownNeighborhood(data.title)
+    || matchKnownNeighborhood(text)
+    || null;
   const city = inferUruguayCity(neighborhood, data.city, text);
   const extras = Array.isArray(data.extras)
     ? data.extras.filter((item) => item.label && item.value && !/preg[uú]ntale|consultar/i.test(item.value))
@@ -1656,15 +1776,28 @@ function readFromTitle(metadata, index) {
   return parts[index + 1] || null;
 }
 
+const KNOWN_NEIGHBORHOODS = [
+  "Colinas de Carrasco", "Barra de Carrasco", "Carrasco",
+  "Punta Carretas", "Punta Gorda", "Parque Rodó", "Parque Rodo",
+  "Ciudad Vieja", "La Blanqueada", "Tres Cruces", "Punta del Este",
+  "El Pinar", "Pinar", "Pocitos", "Malvín", "Malvin", "Buceo",
+  "Cordón", "Centro", "Prado", "Atahualpa", "Aguada",
+  "Maroñas", "Unión", "Goes", "Lagomar", "Solymar", "Shangrila",
+  "La Barra", "Manantiales",
+];
+
+// Devuelve el barrio conocido MÁS ESPECÍFICO que aparezca en un texto dado.
+// Ej: "Colinas de Carrasco" gana a "Carrasco" cuando ambos están; pero un texto
+// que solo dice "Carrasco" devuelve "Carrasco" (no una variante compuesta).
+function matchKnownNeighborhood(text) {
+  if (!text) return null;
+  const found = KNOWN_NEIGHBORHOODS.filter((name) => new RegExp(`\\b${escapeReg(name)}\\b`, "i").test(text));
+  if (!found.length) return null;
+  return found.sort((a, b) => b.length - a.length)[0];
+}
+
 function readKnownNeighborhood(text) {
-  const known = [
-    "Colinas de Carrasco", "Barra de Carrasco", "Punta Carretas", "Punta Gorda", "Parque Rodo", "Parque Rodó",
-    "Ciudad Vieja", "La Blanqueada", "Tres Cruces", "Punta del Este", "El Pinar",
-    "Carrasco", "Pocitos", "Malvin", "Malvín", "Buceo",
-    "Cordón", "Centro", "Ciudad Vieja", "Prado", "Atahualpa", "Aguada", "La Blanqueada", "Tres Cruces",
-    "Maroñas", "Unión", "Goes", "Lagomar", "Solymar", "Shangrila", "Pinar", "La Barra", "Manantiales",
-  ];
-  return known.find((name) => new RegExp(`\\b${escapeReg(name)}\\b`, "i").test(text)) || null;
+  return matchKnownNeighborhood(text);
 }
 
 function cleanLocationValue(value) {
