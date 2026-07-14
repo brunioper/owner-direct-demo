@@ -5388,6 +5388,10 @@ function dedupePropertyPhotoUrls(urls) {
 }
 
 function photoDedupeKey(url = "") {
+  // mlstatic sirve la misma foto en varios tamaños (D_NQ_NP_2X_{id}-F.webp,
+  // D_NQ_NP_{id}-O.webp, D_Q_NP_{id}-R.webp…): la identidad es el id central.
+  const mlId = /(\d+-ML[A-Z]\d+_\d{4,6})/i.exec(url);
+  if (mlId && /mlstatic\.com/i.test(url)) return mlId[1].toLowerCase();
   try {
     const parsed = new URL(url);
     return (parsed.pathname.split("/").pop() || parsed.pathname)

@@ -1358,6 +1358,10 @@ async function scrapeHtml(url, html) {
   const text = cleanText(`${stripTags(html)} ${extractJsonText(html)}`);
   const coordinates = readCoordinates(html, text);
   const mercadoLibre = platform === "MercadoLibre" ? await readMercadoLibreEnrichment(url, html) : null;
+  // La API pública de items devuelve 403 desde 2025 — la galería embebida en
+  // la página es la fuente confiable de TODAS las fotos de la publicación
+  // (y solo de esta publicación: excluye avisos relacionados y publicidad).
+  const mlGalleryPhotos = platform === "MercadoLibre" ? readMercadoLibreGallery(html) : [];
   const rawPhotos = unique([
     ...(mercadoLibre?.photos || []),
     ...extractImagesFromJson(jsonLd),
@@ -1365,10 +1369,11 @@ async function scrapeHtml(url, html) {
     metadata["og:image"],
     metadata["twitter:image"],
   ]).filter(Boolean);
-  const photos = unique([
-    ...(mercadoLibre?.photos || []),
-    ...filterPropertyPhotos(rawPhotos),
-  ]).slice(0, 80);
+  const photos = dedupePhotoVariants(
+    mlGalleryPhotos.length
+      ? [...(mercadoLibre?.photos || []), ...mlGalleryPhotos]
+      : [...(mercadoLibre?.photos || []), ...filterPropertyPhotos(rawPhotos)],
+  ).slice(0, 80);
 
   const data = normalizeUruguayData({
     title: first(mercadoLibre?.data?.title, jsonLd.name, metadata["og:title"], metadata.title, betweenTitle(html)),
@@ -1451,6 +1456,73 @@ async function readMercadoLibreEnrichment(url, html) {
   } catch {
     return null;
   }
+}
+
+// La PDP de MercadoLibre embebe la galería completa en su estado precargado:
+// "pictures":[{"id":"659557-MLU109373989985_032026","alt":"Imagen 1 de 18…"}].
+// De cada id se construye la variante 2X (máxima resolución pública).
+function readMercadoLibreGallery(html) {
+  const ids = [];
+  const seen = new Set();
+  for (const match of html.matchAll(/"pictures"\s*:\s*\[/g)) {
+    const array = readJsonArrayAt(html, match.index + match[0].length - 1);
+    if (!Array.isArray(array) || !array.length) continue;
+    const validIds = array
+      .map((picture) => String(picture?.id || ""))
+      .filter((id) => /^\d+-ML[A-Z]\d+_\d{4,6}$/.test(id));
+    // Si el array no es mayormente ids de fotos, es otro componente (avisos
+    // relacionados, publicidad) — ignorarlo entero.
+    if (validIds.length < array.length * 0.8) continue;
+    for (const id of validIds) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids.map((id) => `https://http2.mlstatic.com/D_NQ_NP_2X_${id}-F.webp`);
+}
+
+// Parsea el array JSON que empieza en text[start] === "[" con matching de
+// corchetes consciente de strings (los alt llevan comas y corchetes).
+function readJsonArrayAt(text, start) {
+  if (text[start] !== "[") return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  const limit = Math.min(text.length, start + 200_000);
+  for (let i = start; i < limit; i++) {
+    const char = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (char === "\\") { escaped = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (!depth) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Una misma foto llega como D_NQ_NP_2X_{id}-F.webp, D_NQ_NP_{id}-O.webp,
+// D_Q_NP_{id}-R.webp… — quedarse con la primera aparición de cada foto
+// (la lista ya viene ordenada de mayor a menor calidad).
+function dedupePhotoVariants(urls) {
+  const seen = new Set();
+  return urls.filter(Boolean).filter((url) => {
+    const key = photoDedupeKey(url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function extractMercadoLibreItemId(url, html) {
@@ -1574,6 +1646,10 @@ function filterPropertyPhotos(urls) {
 }
 
 function photoDedupeKey(url) {
+  // mlstatic codifica la MISMA foto con prefijos/sufijos de tamaño distintos:
+  // el id central (659557-MLU109373989985_032026) es la identidad real.
+  const mlId = /(\d+-ML[A-Z]\d+_\d{4,6})/i.exec(url);
+  if (mlId && /mlstatic\.com/i.test(url)) return mlId[1].toLowerCase();
   try {
     const parsed = new URL(url);
     const filename = parsed.pathname.split("/").pop() || parsed.pathname;
