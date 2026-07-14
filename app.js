@@ -542,7 +542,14 @@ function pricePerM2Label(property) {
 function formatPropertyTitle(title) {
   if (!title) return "Propiedad";
   let t = String(title).replace(/^\s*(venta|alquiler|vendo|arriendo)\s+/i, "").trim();
-  t = t.replace(/\b\w/g, (c) => c.toUpperCase());
+  if (t === t.toUpperCase()) t = t.toLowerCase();
+  // Title case respetando conectores del español ("Colinas de Carrasco", no "Colinas De Carrasco").
+  const lowerWords = new Set(["de", "del", "la", "las", "el", "los", "y", "en", "con", "a", "al", "por", "para"]);
+  t = t.replace(/\b\w+/g, (word, offset) => {
+    const lower = word.toLowerCase();
+    if (offset > 0 && lowerWords.has(lower)) return lower;
+    return word[0].toUpperCase() + word.slice(1);
+  });
   if (t.length > 60) t = t.slice(0, 57) + "…";
   return t || "Propiedad";
 }
@@ -1423,7 +1430,9 @@ function renderMarketplace() {
 
     card.innerHTML = `
       <div class="property-media">
-        ${cover ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(formattedTitle)}">` : ""}
+        ${cover
+          ? `<img loading="lazy" src="${cover}" alt="${escapeAttr(formattedTitle)}">`
+          : `<div class="photo-fallback">${escapeHtml((property.title || "P").trim()[0].toUpperCase())}</div>`}
         <span class="card-badge-status ${statusCls}">${escapeHtml(statusLabel)}</span>
         ${showScoreBadge ? `<span class="card-badge-score ${scoreCls}">${scoreNum.toFixed(1)}★</span>` : ""}
       </div>
@@ -1823,10 +1832,16 @@ function renderCompareBar() {
   const bar = $("#compareBar");
   if (!bar) return;
   const count = state.compareIds.length;
-  bar.classList.toggle("hidden", count < 2);
-  if (count < 2) return;
-  bar.innerHTML = `
-    <span class="compare-bar-label">Comparando <strong>${count}</strong> ${count === 1 ? "propiedad" : "propiedades"}</span>
+  bar.classList.toggle("hidden", count < 1);
+  if (count < 1) return;
+  // Con una sola marcada, la barra guía al siguiente paso en vez de no aparecer.
+  bar.innerHTML = count === 1
+    ? `
+    <span class="compare-bar-label"><strong>1</strong> propiedad seleccionada — marcá otra para comparar</span>
+    <button class="compare-bar-clear" id="clearCompareBtn" title="Borrar selección">✕</button>
+  `
+    : `
+    <span class="compare-bar-label">Comparando <strong>${count}</strong> propiedades</span>
     <button class="primary" id="openCompareBtn">Ver comparación →</button>
     <button class="compare-bar-clear" id="clearCompareBtn" title="Borrar selección">✕</button>
   `;
@@ -2971,6 +2986,14 @@ function renderMortgageCalc(price) {
 
 let mortgageAiTimer = null;
 
+// Pinta la porción recorrida del slider (la CSS usa --range-fill como stop).
+function syncRangeFill(range) {
+  const min = Number(range.min) || 0;
+  const max = Number(range.max) || 100;
+  const pct = max > min ? ((Number(range.value) - min) / (max - min)) * 100 : 0;
+  range.style.setProperty("--range-fill", `${pct}%`);
+}
+
 function startMortgageCalc(container, price) {
   if (!price) return;
   const downEl = container.querySelector("#mortgageDownpct");
@@ -2996,6 +3019,7 @@ function startMortgageCalc(container, price) {
   }
 
   [downEl, yearsEl, rateEl].forEach((el) => el.addEventListener("input", update));
+  [downEl, yearsEl].forEach(syncRangeFill);
   update();
 }
 
@@ -3497,6 +3521,29 @@ async function filesToDataUrls(files) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   })));
+}
+
+// Reduce una foto a tamaño apto para IA (las portadas se guardan a resolución
+// completa; mandarlas tal cual infla el request a varios MB por búsqueda).
+async function downscaleImageForAi(dataUrl, maxSide = 768) {
+  if (!dataUrl || !dataUrl.startsWith("data:image/")) return dataUrl;
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = dataUrl;
+    });
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    if (scale >= 1 && dataUrl.length < 300_000) return dataUrl;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } catch {
+    return dataUrl;
+  }
 }
 
 async function callOpenRouter({ model, functionType = "search", messages, temperature = 0.2 }) {
@@ -4587,6 +4634,14 @@ async function* streamSearchCall(messages) {
 // La IA completa solo corre al confirmar (Enter / botón Buscar).
 /* ── Quiz "Encontrá tu match" — recomendador determinístico, sin IA ──── */
 
+const QUIZ_FEATURES = {
+  jardin: { label: "Jardín / espacio verde", rx: /jardin|parque|patio|fondo/ },
+  parrillero: { label: "Parrillero", rx: /parrillero|barbacoa/ },
+  piscina: { label: "Piscina", rx: /piscina|pileta/ },
+  garaje: { label: "Garaje / cochera", rx: /garaje|garage|cochera|parking/ },
+  terraza: { label: "Terraza / balcón", rx: /terraza|balcon|azotea|deck/ },
+};
+
 const QUIZ_QUESTIONS = [
   {
     key: "perfil", q: "¿Para qué buscás?", options: [
@@ -4594,6 +4649,22 @@ const QUIZ_QUESTIONS = [
       { v: "primera", label: "Primera vivienda" },
       { v: "inversion", label: "Invertir / renta" },
       { v: "downsize", label: "Achicar / práctico" },
+    ],
+  },
+  {
+    key: "tipo", q: "¿Qué tipo de propiedad?", options: [
+      { v: "Casa", label: "Casa" },
+      { v: "Apartamento", label: "Apartamento" },
+      { v: "", label: "Me da igual" },
+    ],
+  },
+  {
+    key: "dormitorios", q: "¿Cuántos dormitorios como mínimo?", options: [
+      { v: 1, label: "1 dormitorio" },
+      { v: 2, label: "2 dormitorios" },
+      { v: 3, label: "3 dormitorios" },
+      { v: 4, label: "4 o más" },
+      { v: 0, label: "Me da igual" },
     ],
   },
   {
@@ -4605,17 +4676,23 @@ const QUIZ_QUESTIONS = [
     ],
   },
   {
+    key: "imprescindibles", q: "¿Algo que no pueda faltar?", multi: true,
+    hint: "Elegí todo lo que aplique — o seguí sin marcar nada.",
+    options: Object.entries(QUIZ_FEATURES).map(([v, f]) => ({ v, label: f.label })),
+  },
+  {
     key: "presupuesto", q: "¿Presupuesto aproximado?", options: [
       { v: 150000, label: "Hasta USD 150.000" },
       { v: 300000, label: "USD 150.000 – 300.000" },
       { v: 500000, label: "USD 300.000 – 500.000" },
-      { v: 99000000, label: "Sin límite fijo" },
+      { v: 0, label: "Sin límite fijo" },
     ],
   },
 ];
 
 let quizAnswers = {};
 let quizStep = 0;
+let quizRanked = [];
 
 function openQuiz() {
   quizAnswers = {};
@@ -4630,89 +4707,130 @@ function renderQuizStep() {
   if (quizStep < QUIZ_QUESTIONS.length) {
     const step = QUIZ_QUESTIONS[quizStep];
     $("#quizTitle").textContent = step.q;
+    const selected = step.multi ? (quizAnswers[step.key] || []) : quizAnswers[step.key];
+    const isSelected = (v) => step.multi ? selected.includes(String(v)) : selected !== undefined && String(selected) === String(v);
     body.innerHTML = `
       <div class="quiz-progress">${QUIZ_QUESTIONS.map((_, i) => `<span class="${i <= quizStep ? "done" : ""}"></span>`).join("")}</div>
+      ${step.hint ? `<p class="quiz-hint">${escapeHtml(step.hint)}</p>` : ""}
       <div class="quiz-options">
-        ${step.options.map((o) => `<button type="button" class="quiz-option" data-quiz-value="${escapeAttr(String(o.v))}">${escapeHtml(o.label)}</button>`).join("")}
+        ${step.options.map((o) => `<button type="button" class="quiz-option${isSelected(o.v) ? " selected" : ""}" data-quiz-value="${escapeAttr(String(o.v))}" aria-pressed="${isSelected(o.v)}">${escapeHtml(o.label)}</button>`).join("")}
       </div>
-      <p class="quiz-step-label">Paso ${quizStep + 1} de ${QUIZ_QUESTIONS.length}</p>`;
+      <div class="quiz-nav">
+        ${quizStep > 0 ? `<button type="button" class="quiz-back">← Volver</button>` : "<span></span>"}
+        <span class="quiz-step-label">Paso ${quizStep + 1} de ${QUIZ_QUESTIONS.length}</span>
+        ${step.multi ? `<button type="button" class="primary quiz-next">${(quizAnswers[step.key] || []).length ? "Continuar" : "Nada imprescindible"}</button>` : "<span></span>"}
+      </div>`;
     return;
   }
   // Resultados
-  $("#quizTitle").textContent = "Tu mejor match";
   const ranked = scoreQuizMatches();
+  quizRanked = ranked;
   if (!ranked.length) {
-    body.innerHTML = `<p class="public-description">No hay propiedades publicadas que coincidan con tu presupuesto. Probá ampliar el rango.</p>
+    $("#quizTitle").textContent = "Sin propiedades publicadas";
+    body.innerHTML = `<p class="public-description">Todavía no hay propiedades publicadas para comparar con tu perfil.</p>
       <div class="quiz-actions"><button type="button" class="quiz-restart">Reiniciar</button></div>`;
     return;
   }
+  const anyInBudget = ranked.some((r) => !r.overBudget);
+  $("#quizTitle").textContent = anyInBudget ? "Tu mejor match" : "Nada en tu presupuesto — opciones cercanas";
   const top = ranked[0];
+  const rest = ranked.slice(1, 3);
   body.innerHTML = `
     <div class="quiz-result">
       <p class="quiz-result-lead">${escapeHtml(top.reason)}</p>
-      <div class="quiz-match-card" data-quiz-open="${escapeAttr(top.property.id)}" role="button" tabindex="0">
-        <div class="quiz-match-media">${photoSrc(top.property.photos?.[0]) ? `<img src="${photoSrc(top.property.photos[0])}" alt="">` : `<span>${escapeHtml((top.property.title || "P")[0])}</span>`}</div>
-        <div class="quiz-match-body">
-          <span class="card-neighborhood">${escapeHtml((top.property.neighborhood || "").toUpperCase())}</span>
-          <strong class="public-price">${formatUsd(Number(top.property.price))}</strong>
-          <span>${escapeHtml(formatPropertyTitle(top.property.title))}</span>
-          <span class="quiz-match-fit">${top.fit}% de coincidencia</span>
-        </div>
-      </div>
+      ${quizMatchCardHtml(top, true)}
+      ${rest.length ? `<p class="quiz-more-label">También te pueden servir</p><div class="quiz-match-list">${rest.map((r) => quizMatchCardHtml(r, false)).join("")}</div>` : ""}
       <div class="quiz-actions">
         <button type="button" class="primary quiz-see-all">${ranked.length === 1 ? "Ver el match" : `Ver los ${ranked.length} matches`}</button>
+        <button type="button" class="quiz-adjust">Ajustar respuestas</button>
         <button type="button" class="quiz-restart">Reiniciar</button>
       </div>
     </div>`;
-  quizRanked = ranked;
 }
 
-let quizRanked = [];
+function quizMatchCardHtml(match, isTop) {
+  const p = match.property;
+  const cover = photoSrc(p.photos?.[0]);
+  const chips = [
+    ...match.matched.map((label) => `<span class="quiz-chip ok">✓ ${escapeHtml(label)}</span>`),
+    ...match.missing.map((label) => `<span class="quiz-chip miss">✗ ${escapeHtml(label)}</span>`),
+  ].slice(0, isTop ? 6 : 4).join("");
+  return `
+    <div class="quiz-match-card${isTop ? "" : " compact"}" data-quiz-open="${escapeAttr(p.id)}" role="button" tabindex="0" aria-label="Ver ${escapeAttr(formatPropertyTitle(p.title))}">
+      <div class="quiz-match-media">${cover ? `<img src="${cover}" alt="">` : `<span>${escapeHtml((p.title || "P").trim()[0].toUpperCase())}</span>`}</div>
+      <div class="quiz-match-body">
+        <span class="card-neighborhood">${escapeHtml((p.neighborhood || "").toUpperCase())}</span>
+        <strong class="public-price">${formatUsd(Number(p.price))}</strong>
+        <span>${escapeHtml(formatPropertyTitle(p.title))}</span>
+        <span class="quiz-match-fit">${match.fit}% de coincidencia${match.overBudget ? ` · ${match.overBudgetPct}% sobre tu presupuesto` : ""}</span>
+        ${chips ? `<div class="quiz-why">${chips}</div>` : ""}
+      </div>
+    </div>`;
+}
 
+// Cada respuesta se convierte en un criterio verificable. El % de coincidencia
+// es la fracción ponderada de criterios cumplidos — nunca un 100% inventado.
 function scoreQuizMatches() {
   const source = state.properties.filter((p) => p.status === "published");
-  const maxPrice = Number(quizAnswers.presupuesto) || Infinity;
-  const prioridad = quizAnswers.prioridad;
-  const perfil = quizAnswers.perfil;
+  if (!source.length) return [];
+  const a = quizAnswers;
+  const maxPrice = Number(a.presupuesto) || 0;
+  const tipo = a.tipo || "";
+  const minBeds = Number(a.dormitorios) || 0;
+  const wanted = (a.imprescindibles || []).filter((k) => QUIZ_FEATURES[k]);
+
   const scored = source.map((p) => {
-    if (Number(p.price) > maxPrice * 1.05) return null;
-    let score = 10;
     const hay = propertySearchHaystack(p);
     const beds = Number(p.bedrooms) || 0;
     const land = Number(p.landArea) || 0;
     const built = Number(p.builtArea) || 0;
-    // prioridad
-    if (prioridad === "verde") { if (/jardin|parrillero|piscina|patio|terraza/.test(hay)) score += 6; if (land > built * 1.5) score += 4; }
-    if (prioridad === "conexion") { if (/carrasco|pocitos|centro|punta carretas|cordon|tres cruces/.test(normalizeText(p.neighborhood || ""))) score += 6; }
-    if (prioridad === "precio") { if (maxPrice !== Infinity) score += Math.max(0, 8 * (1 - Number(p.price) / maxPrice)); score += Number(p.score) ? 0 : 2; }
-    if (prioridad === "amplitud") { score += Math.min(built / 40, 8); score += beds; }
-    // perfil
-    if (perfil === "familia") { score += Math.min(beds * 1.5, 6); if (/colegio|jardin|parque/.test(hay)) score += 2; }
-    if (perfil === "primera") { if (Number(p.price) <= maxPrice * 0.8) score += 4; if (beds <= 2) score += 2; }
-    if (perfil === "inversion") { const ppm = pricePerM2(p); if (ppm) score += Math.max(0, 6 - ppm / 500); }
-    if (perfil === "downsize") { if (built && built < 120) score += 5; if (normalizePropertyType(p.type) === "Apartamento") score += 3; }
-    // calidad de ficha como desempate
-    score += (Number(p.score) || 0) * 0.4;
-    return { property: p, score };
-  }).filter(Boolean);
-  if (!scored.length) return [];
-  const max = Math.max(...scored.map((s) => s.score));
-  scored.sort((a, b) => b.score - a.score);
-  return scored.map((s, i) => ({
-    ...s,
-    fit: Math.round(60 + (s.score / max) * 40),
-    reason: i === 0 ? buildQuizReason(s.property, prioridad, perfil) : "",
-  }));
+    const price = Number(p.price) || 0;
+    const checks = [];
+    const overBudget = Boolean(maxPrice && price > maxPrice * 1.05);
+    if (maxPrice) checks.push({ label: "dentro de presupuesto", ok: !overBudget, weight: 3 });
+    if (tipo) checks.push({ label: tipo.toLowerCase(), ok: normalizePropertyType(p.type) === tipo, weight: 2 });
+    if (minBeds) checks.push({ label: `${minBeds}+ dormitorios`, ok: beds >= minBeds, weight: 2 });
+    for (const key of wanted) checks.push({ label: QUIZ_FEATURES[key].label.toLowerCase(), ok: QUIZ_FEATURES[key].rx.test(hay), weight: 2 });
+    if (a.prioridad === "verde") checks.push({ label: "espacio verde", ok: /jardin|parrillero|piscina|patio|terraza/.test(hay) || land > built * 1.5, weight: 2 });
+    if (a.prioridad === "conexion") checks.push({ label: "zona conectada", ok: /carrasco|pocitos|centro|punta carretas|cordon|tres cruces/.test(normalizeSearchText(`${p.neighborhood || ""} ${p.city || ""}`)), weight: 2 });
+    if (a.prioridad === "precio") checks.push({ label: "buen precio", ok: maxPrice ? price <= maxPrice * 0.85 : Boolean(pricePerM2(p) && pricePerM2(p) < 2500), weight: 2 });
+    if (a.prioridad === "amplitud") checks.push({ label: "amplitud", ok: built >= 150 || beds >= 4, weight: 2 });
+    if (a.perfil === "familia") checks.push({ label: "apta familia", ok: beds >= 3, weight: 1 });
+    if (a.perfil === "primera") checks.push({ label: "tamaño inicial", ok: beds > 0 && beds <= 3, weight: 1 });
+    if (a.perfil === "inversion") { const ppm = pricePerM2(p); checks.push({ label: "valor por m²", ok: Boolean(ppm && ppm < 2800), weight: 1 }); }
+    if (a.perfil === "downsize") checks.push({ label: "práctica", ok: (built > 0 && built < 120) || normalizePropertyType(p.type) === "Apartamento", weight: 1 });
+
+    const total = checks.reduce((sum, c) => sum + c.weight, 0);
+    const hit = checks.reduce((sum, c) => sum + (c.ok ? c.weight : 0), 0);
+    const fit = total ? Math.round((hit / total) * 100) : Math.round((Number(p.score) || 5) * 10);
+    return {
+      property: p,
+      fit,
+      overBudget,
+      overBudgetPct: overBudget ? Math.round((price / maxPrice - 1) * 100) : 0,
+      matched: checks.filter((c) => c.ok).map((c) => c.label),
+      missing: checks.filter((c) => !c.ok && c.label !== "dentro de presupuesto").map((c) => c.label),
+      // desempate: calidad de ficha
+      tiebreak: (Number(p.score) || 0),
+    };
+  });
+
+  // Preferir lo que entra en presupuesto; si nada entra, mostrar lo más cercano
+  // en precio en vez de un callejón sin salida.
+  const inBudget = scored.filter((s) => !s.overBudget);
+  const pool = inBudget.length ? inBudget : scored.slice().sort((x, y) => x.overBudgetPct - y.overBudgetPct);
+  pool.sort((x, y) => (y.fit - x.fit) || (y.tiebreak - x.tiebreak));
+  return pool.slice(0, 8).map((s, i) => ({ ...s, reason: i === 0 ? buildQuizReason(s) : "" }));
 }
 
-function buildQuizReason(p, prioridad, perfil) {
-  const bits = [];
-  if (prioridad === "verde") bits.push("espacio verde y aire libre");
-  if (prioridad === "conexion") bits.push("buena conexión");
-  if (prioridad === "precio") bits.push("relación precio/valor");
-  if (prioridad === "amplitud") bits.push("amplitud");
-  const perfilLabel = { familia: "para tu familia", primera: "como primera vivienda", inversion: "para invertir", downsize: "práctica" }[perfil] || "";
-  return `${formatPropertyTitle(p.title)} en ${p.neighborhood || p.city} es tu mejor opción ${perfilLabel}${bits.length ? ` por ${bits.join(" y ")}` : ""}.`;
+function buildQuizReason(match) {
+  const p = match.property;
+  const where = p.neighborhood || p.city || "Uruguay";
+  if (match.overBudget) {
+    return `Nada entra en tu presupuesto hoy. ${formatPropertyTitle(p.title)} en ${where} es lo más cercano: ${match.overBudgetPct}% por encima.`;
+  }
+  const highlights = match.matched.slice(0, 3).join(", ");
+  return `${formatPropertyTitle(p.title)} en ${where} cumple ${match.matched.length} de ${match.matched.length + match.missing.length} criterios tuyos${highlights ? `: ${highlights}` : ""}.`;
 }
 
 function applyQuizToSearch() {
@@ -4751,7 +4869,6 @@ async function runAiPropertySearch(saveToHistory = true) {
   setAiSearchProgress(true);
   if (saveToHistory) rememberSearch(query);
   try {
-    await nextFrameDelay();
     const source = state.properties.filter((p) => p.status === "published");
     const preFiltered = preFilterForSearch(source, query);
     const summaries = preFiltered.map((p) => ({
@@ -4767,21 +4884,27 @@ async function runAiPropertySearch(saveToHistory = true) {
       extras: (p.extras || []).map((e) => e.name || e).filter(Boolean),
       description: p.description,
     }));
-    const visualCandidates = source
-      .filter((p) => photoSrc(p.photos[0]))
-      .slice(0, 10)
-      .map((p) => ({ id: p.id, title: p.title, image: photoSrc(p.photos[0]) }));
     const prompt = buildSearchPrompt(query, summaries);
-    const content = (aiSearchImageDataUrl || visualCandidates.length) && modelQueueSupportsVision(aiSearchImageDataUrl ? "vision" : "search")
-      ? [
+    // Fotos solo cuando el comprador subió una imagen de referencia: mandar
+    // portadas en cada búsqueda de texto multiplica el payload por megabytes
+    // y era la principal causa de lentitud. Todo se reduce antes de enviar.
+    let content = prompt;
+    if (aiSearchImageDataUrl && modelQueueSupportsVision("vision")) {
+      const reference = await downscaleImageForAi(aiSearchImageDataUrl);
+      const visualCandidates = await Promise.all(source
+        .filter((p) => photoSrc(p.photos[0]))
+        .slice(0, 6)
+        .map(async (p) => ({ id: p.id, image: await downscaleImageForAi(photoSrc(p.photos[0])) })));
+      content = [
         { type: "text", text: prompt },
-        ...(aiSearchImageDataUrl ? [{ type: "text", text: "Imagen de referencia del comprador:" }, { type: "image_url", image_url: { url: aiSearchImageDataUrl } }] : []),
+        { type: "text", text: "Imagen de referencia del comprador:" },
+        { type: "image_url", image_url: { url: reference } },
         ...visualCandidates.flatMap((item, i) => [
           { type: "text", text: `Foto candidata ${i + 1}. property_id=${item.id}` },
           { type: "image_url", image_url: { url: item.image } },
         ]),
-      ]
-      : prompt;
+      ];
+    }
     let accumulated = "";
     for await (const token of streamSearchCall([{ role: "user", content }])) {
       accumulated += token;
@@ -5524,18 +5647,36 @@ function bindEvents() {
   $("#clearAiSearchBtn").addEventListener("click", clearAiSearch);
   $("#openQuizBtn")?.addEventListener("click", openQuiz);
   $("#quizCloseBtn")?.addEventListener("click", () => $("#quizDialog")?.close());
-  $("#quizBody")?.addEventListener("click", (event) => {
-    const value = event.target.dataset.quizValue;
-    if (value !== undefined) {
-      quizAnswers[QUIZ_QUESTIONS[quizStep].key] = value;
-      quizStep += 1;
+  const handleQuizAction = (event) => {
+    const option = event.target.closest("[data-quiz-value]");
+    if (option && quizStep < QUIZ_QUESTIONS.length) {
+      const step = QUIZ_QUESTIONS[quizStep];
+      const value = option.dataset.quizValue;
+      if (step.multi) {
+        const current = quizAnswers[step.key] || [];
+        quizAnswers[step.key] = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+      } else {
+        quizAnswers[step.key] = value;
+        quizStep += 1;
+      }
       renderQuizStep();
       return;
     }
+    if (event.target.closest(".quiz-next")) { quizStep += 1; renderQuizStep(); return; }
+    if (event.target.closest(".quiz-back")) { quizStep = Math.max(0, quizStep - 1); renderQuizStep(); return; }
+    if (event.target.closest(".quiz-adjust")) { quizStep = QUIZ_QUESTIONS.length - 1; renderQuizStep(); return; }
     if (event.target.closest(".quiz-restart")) { quizStep = 0; quizAnswers = {}; renderQuizStep(); return; }
     if (event.target.closest(".quiz-see-all")) { applyQuizToSearch(); return; }
     const openId = event.target.closest("[data-quiz-open]")?.dataset.quizOpen;
     if (openId) { $("#quizDialog")?.close(); openPropertyModal(openId); }
+  };
+  $("#quizBody")?.addEventListener("click", handleQuizAction);
+  $("#quizBody")?.addEventListener("keydown", (event) => {
+    // Las tarjetas de match son div[role=button] — activarlas con Enter/Espacio.
+    if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-quiz-open]")) {
+      event.preventDefault();
+      handleQuizAction(event);
+    }
   });
   $(".roomix-search-input")?.addEventListener("click", (event) => {
     setSearchPanelOpen(true);
@@ -6029,6 +6170,11 @@ function bindEvents() {
       renderMarketplace();
       renderCompareBar();
     }
+  });
+  // Pista rellena en los sliders (CSS pinta hasta --range-fill; acá se calcula).
+  document.addEventListener("input", (event) => {
+    const range = event.target;
+    if (range.matches?.('input[type="range"]')) syncRangeFill(range);
   });
   $("#closePropertyModalBtn").addEventListener("click", () => {
     $("#propertyModal").close();

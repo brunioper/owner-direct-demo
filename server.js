@@ -854,20 +854,39 @@ const SEARCH_STREAM_MODELS = [
   "meta-llama/llama-3.3-70b-instruct:free",
 ];
 
+// Cuánto esperar los headers de cada modelo antes de saltar al siguiente.
+// Sin esto, un modelo gratuito colgado congela la búsqueda minutos enteros.
+const STREAM_FIRST_BYTE_TIMEOUT_MS = Number(process.env.AI_STREAM_TIMEOUT_MS || 12000);
+
 async function handleOpenRouterStream(req, res) {
   const body = await readBody(req);
   const { apiKey, messages, temperature = 0.1, max_tokens = 400 } = JSON.parse(body || "{}");
-  const effectiveApiKey = await resolveOpenRouterKey(req, apiKey);
+  const routing = await loadAiRoutingConfig();
+  const effectiveApiKey = await resolveOpenRouterKey(req, apiKey, routing);
   if (!effectiveApiKey) {
     res.writeHead(401, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Falta API key de OpenRouter. Un administrador debe configurarla en el panel de IA." }));
     return;
   }
   const origin = req.headers.origin || process.env.PUBLIC_URL || "http://127.0.0.1:4173";
-  for (let i = 0; i < SEARCH_STREAM_MODELS.length; i++) {
-    const model = SEARCH_STREAM_MODELS[i];
-    if (i > 0) await new Promise((r) => setTimeout(r, 500));
+  // Respetar el modelo de búsqueda configurado por el admin; los hardcodeados
+  // quedan como red de seguridad. Con imágenes, solo modelos que las soporten.
+  const task = routing.functions?.search || {};
+  const needsImageInput = messagesHaveImageInput(messages);
+  const candidates = unique([
+    task.lastSuccessfulModel,
+    task.activeModel,
+    ...(task.fallbacks || []),
+    ...SEARCH_STREAM_MODELS,
+  ].filter(Boolean)).filter((model) => !needsImageInput || modelSupportsImageInput(model)).slice(0, 5);
+
+  let lastFailure = "Todos los modelos de búsqueda fallaron.";
+  for (let i = 0; i < candidates.length; i++) {
+    const model = candidates[i];
+    if (i > 0) await new Promise((r) => setTimeout(r, 150));
     let response;
+    const controller = new AbortController();
+    const headerTimer = setTimeout(() => controller.abort(), STREAM_FIRST_BYTE_TIMEOUT_MS);
     try {
       response = await fetch(`${OPENROUTER_BASE_URL.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
@@ -878,15 +897,24 @@ async function handleOpenRouterStream(req, res) {
           "X-Title": "mitti",
         },
         body: JSON.stringify({ model, messages, temperature, max_tokens, stream: true }),
+        signal: controller.signal,
       });
-    } catch {
+    } catch (error) {
+      clearTimeout(headerTimer);
+      lastFailure = `Modelo ${model}: ${error.name === "AbortError" ? `sin respuesta en ${STREAM_FIRST_BYTE_TIMEOUT_MS / 1000}s` : error.message}`;
       continue;
     }
-    if (response.status === 429 && i < SEARCH_STREAM_MODELS.length - 1) continue;
+    clearTimeout(headerTimer);
     if (!response.ok) {
-      res.writeHead(response.status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: `Modelo ${model} respondió ${response.status}.` }));
-      return;
+      lastFailure = `Modelo ${model} respondió ${response.status}.`;
+      // Sin key válida o sin crédito no mejora con otro modelo — cortar ya.
+      if ([401, 402].includes(response.status)) {
+        res.writeHead(response.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: humanOpenRouterError(response.status, await response.text().catch(() => "")) }));
+        return;
+      }
+      // Cualquier otro error (400 modelo dado de baja, 404, 429, 5xx) → probar el siguiente.
+      continue;
     }
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -901,13 +929,15 @@ async function handleOpenRouterStream(req, res) {
         if (done) break;
         res.write(Buffer.from(value));
       }
+    } catch {
+      // Stream cortado a mitad — el cliente parsea lo acumulado y sigue.
     } finally {
       res.end();
     }
     return;
   }
   res.writeHead(502, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "Todos los modelos de búsqueda fallaron." }));
+  res.end(JSON.stringify({ error: lastFailure }));
 }
 
 async function handleOpenRouterTest(req, res) {
@@ -1067,9 +1097,14 @@ async function persistAiHealth(functionType, result) {
   }
 }
 
+// Cap on how long a single (non-stream) model attempt may take end to end.
+// Vision/score prompts carry photos and legit answers can be long; anything
+// beyond this is a stuck provider and the next fallback will be faster.
+const AI_ATTEMPT_TIMEOUT_MS = Number(process.env.AI_ATTEMPT_TIMEOUT_MS || 45000);
+
 // One OpenAI-compatible /chat/completions call. Retries once without
 // response_format if the provider rejects JSON mode. Returns a normalized shape.
-async function attemptChatCompletion({ baseUrl, apiKey, model, messages, temperature, responseFormat, origin }) {
+async function attemptChatCompletion({ baseUrl, apiKey, model, messages, temperature, responseFormat, origin, timeoutMs = AI_ATTEMPT_TIMEOUT_MS }) {
   const endpoint = `${String(baseUrl).replace(/\/$/, "")}/chat/completions`;
   const headers = {
     "Content-Type": "application/json",
@@ -1079,20 +1114,25 @@ async function attemptChatCompletion({ baseUrl, apiKey, model, messages, tempera
   };
   const basePayload = { model, messages, temperature };
   let payload = responseFormat ? { ...basePayload, response_format: { type: "json_object" } } : basePayload;
+  const call = async (body) => {
+    const response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+    return { response, text: await response.text() };
+  };
   let response;
+  let text;
   try {
-    response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
+    ({ response, text } = await call(payload));
   } catch (error) {
-    return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${error.message}` };
+    const detail = error.name === "TimeoutError" ? `sin respuesta en ${Math.round(timeoutMs / 1000)}s` : error.message;
+    return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${detail}` };
   }
-  let text = await response.text();
   // Some models reject json_object mode with a 400 — retry once in plain mode.
   if (!response.ok && responseFormat && response.status === 400 && /response_format|json_object|json_schema/i.test(text)) {
     try {
-      response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(basePayload) });
-      text = await response.text();
+      ({ response, text } = await call(basePayload));
     } catch (error) {
-      return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${error.message}` };
+      const detail = error.name === "TimeoutError" ? `sin respuesta en ${Math.round(timeoutMs / 1000)}s` : error.message;
+      return { ok: false, status: 0, text: `Sin conexión con ${baseUrl}: ${detail}` };
     }
   }
   return { ok: response.ok, status: response.status, text };
@@ -1105,9 +1145,12 @@ async function runChatCompletion({ apiKey, models, messages, temperature = 0.2, 
   const started = Date.now();
   const attemptedModels = [];
   const needsImageInput = messagesHaveImageInput(messages);
+  // Cadena acotada: probar más de 5 modelos ya no rescata nada y multiplica
+  // la peor latencia percibida por el usuario.
   const candidates = unique((models || []).filter(Boolean))
     .filter((model) => !UNSUPPORTED_CHAT_MODELS.has(String(model).toLowerCase()))
-    .filter((model) => !needsImageInput || modelSupportsImageInput(model));
+    .filter((model) => !needsImageInput || modelSupportsImageInput(model))
+    .slice(0, 5);
   let lastStatus = 502;
   let lastText = "Ningún modelo respondió.";
 
