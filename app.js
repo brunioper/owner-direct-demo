@@ -471,29 +471,100 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 6000);
 }
 
+const progressCreepTimers = new Map();
+
 function setOperationProgress(selector, { title, detail = "", percent = 0, status = "active" } = {}) {
   const element = $(selector);
   if (!element) return;
   const value = Math.max(0, Math.min(100, Number(percent || 0)));
+  // La estructura se construye UNA vez y se actualiza en el lugar: rearmar el
+  // innerHTML en cada hito reemplazaba la barra y la transición nunca corría.
+  if (!element.querySelector(".operation-progress-track")) {
+    element.innerHTML = `
+      <div class="operation-progress-head">
+        <strong></strong>
+        <span></span>
+      </div>
+      <div class="operation-progress-track"><div class="operation-progress-bar"></div></div>
+      <p class="operation-progress-detail hidden"></p>
+    `;
+  }
   element.classList.remove("hidden", "done", "error");
+  element.classList.toggle("working", status === "active");
   if (status === "done") element.classList.add("done");
   if (status === "error") element.classList.add("error");
-  element.style.setProperty("--progress", `${value}%`);
-  element.innerHTML = `
-    <div class="operation-progress-head">
-      <strong>${escapeHtml(title || "Procesando...")}</strong>
-      <span>${value}%</span>
-    </div>
-    <div class="operation-progress-track"><div class="operation-progress-bar"></div></div>
-    ${detail ? `<p class="operation-progress-detail">${escapeHtml(detail)}</p>` : ""}
-  `;
+  const target = status === "done" ? 100 : value;
+  // Nunca retroceder: un hito que llega por detrás del avance visual marearía.
+  const current = Number(element.dataset.progressValue || 0);
+  updateProgressVisual(element, status === "error" ? current : Math.max(target, current), { title: title || "Procesando", detail });
+  startProgressCreep(selector, element, status);
+}
+
+function updateProgressVisual(element, value, { title, detail } = {}) {
+  element.dataset.progressValue = String(value);
+  const bar = element.querySelector(".operation-progress-bar");
+  if (bar) bar.style.width = `${value}%`;
+  const pct = element.querySelector(".operation-progress-head span");
+  if (pct) pct.textContent = `${Math.round(value)}%`;
+  if (title !== undefined) {
+    const strong = element.querySelector(".operation-progress-head strong");
+    if (strong && strong.textContent !== title) strong.textContent = title;
+  }
+  if (detail !== undefined) {
+    const detailEl = element.querySelector(".operation-progress-detail");
+    if (detailEl) {
+      detailEl.textContent = detail;
+      detailEl.classList.toggle("hidden", !detail);
+    }
+  }
+}
+
+// Entre hito e hito la IA puede tardar 10–40s; sin movimiento la barra parece
+// colgada. Avanza suave hacia un techo cercano y ahí espera el hito real.
+function startProgressCreep(selector, element, status) {
+  clearInterval(progressCreepTimers.get(selector));
+  progressCreepTimers.delete(selector);
+  if (status !== "active") return;
+  const ceiling = Math.min(Number(element.dataset.progressValue || 0) + 14, 96);
+  const timer = setInterval(() => {
+    if (!element.isConnected || element.classList.contains("hidden") || !element.classList.contains("working")) {
+      clearInterval(timer);
+      progressCreepTimers.delete(selector);
+      return;
+    }
+    const current = Number(element.dataset.progressValue || 0);
+    if (current >= ceiling) return;
+    const step = Math.max(0.15, (ceiling - current) * 0.055);
+    updateProgressVisual(element, Math.min(ceiling, current + step));
+  }, 300);
+  progressCreepTimers.set(selector, timer);
 }
 
 function clearOperationProgress(selector) {
+  clearInterval(progressCreepTimers.get(selector));
+  progressCreepTimers.delete(selector);
   const element = $(selector);
   if (!element) return;
   element.classList.add("hidden");
   element.innerHTML = "";
+  delete element.dataset.progressValue;
+}
+
+// Botón en estado "trabajando": texto sin puntos — la CSS anima la elipsis.
+function setButtonWorking(selector, label) {
+  const button = $(selector);
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = label;
+  button.classList.add("btn-working");
+}
+
+function restoreButton(selector, label) {
+  const button = $(selector);
+  if (!button) return;
+  button.disabled = false;
+  button.textContent = label;
+  button.classList.remove("btn-working");
 }
 
 function formatUsd(value) {
@@ -3254,6 +3325,8 @@ function renderPhotos() {
   });
 }
 
+let chatThinking = false;
+
 function renderChat() {
   const property = selectedProperty();
   if (!property) return;
@@ -3268,6 +3341,13 @@ function renderChat() {
     bubble.textContent = message.content;
     list.appendChild(bubble);
   });
+  if (chatThinking) {
+    const typing = document.createElement("div");
+    typing.className = "chat-bubble assistant typing";
+    typing.setAttribute("aria-label", "La IA está escribiendo");
+    typing.innerHTML = `<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>`;
+    list.appendChild(typing);
+  }
   list.scrollTop = list.scrollHeight;
 }
 
@@ -3765,8 +3845,7 @@ async function runPhotoAnalysis() {
     alert("Subi al menos una foto antes de calcular el score.");
     return;
   }
-  $("#runAiBtn").disabled = true;
-  $("#runAiBtn").textContent = "Analizando fotos...";
+  setButtonWorking("#runAiBtn", "Analizando fotos");
   setOperationProgress("#analysisProgress", {
     title: "Preparando análisis",
     detail: "Tomo datos principales, costos cargados y hasta 8 fotos representativas.",
@@ -3870,8 +3949,7 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`;
     });
     alert(error.message);
   } finally {
-    $("#runAiBtn").disabled = false;
-    $("#runAiBtn").textContent = "Analizar fotos con IA";
+    restoreButton("#runAiBtn", "Analizar fotos con IA");
   }
 }
 
@@ -3891,8 +3969,7 @@ async function runPlanAnalysis() {
     alert("Para esta demo subi el plano como imagen. Los PDF se dejan cargados, pero en produccion se procesan en backend.");
     return;
   }
-  $("#runPlanAiBtn").disabled = true;
-  $("#runPlanAiBtn").textContent = "Analizando planos...";
+  setButtonWorking("#runPlanAiBtn", "Analizando planos");
   try {
     const content = [
       {
@@ -3943,8 +4020,7 @@ ${JSON.stringify(propertyPrompt(property), null, 2)}`,
   } catch (error) {
     alert(error.message);
   } finally {
-    $("#runPlanAiBtn").disabled = false;
-    $("#runPlanAiBtn").textContent = "Analizar planos con IA";
+    restoreButton("#runPlanAiBtn", "Analizar planos con IA");
   }
 }
 
@@ -4129,8 +4205,7 @@ async function runScrape() {
     alert("Pegá el link de MercadoLibre, InfoCasas u otra publicación.");
     return;
   }
-  $("#scrapeBtn").disabled = true;
-  $("#scrapeBtn").textContent = "Scrapeando...";
+  setButtonWorking("#scrapeBtn", "Scrapeando");
   $("#scrapeOutput").classList.remove("hidden");
   $("#scrapeOutput").textContent = "Iniciando importación asistida...";
   setOperationProgress("#scrapeProgress", {
@@ -4203,8 +4278,7 @@ async function runScrape() {
     });
     $("#scrapeOutput").innerHTML = `<strong>No se pudo scrapear automáticamente.</strong><br>${escapeHtml(error.message)}<br><br>Podés cargar manualmente o copiar/pegar datos desde la publicación.`;
   } finally {
-    $("#scrapeBtn").disabled = false;
-    $("#scrapeBtn").textContent = "Scrapear datos";
+    restoreButton("#scrapeBtn", "Scrapear datos");
   }
 }
 
@@ -4320,8 +4394,7 @@ async function testAiConnection() {
   // Use a typed key as a transient test override; otherwise test the server-stored key.
   const typedKey = ($("#apiKeyInput").value || "").trim();
 
-  $("#testAiBtn").disabled = true;
-  $("#testAiBtn").textContent = "Probando...";
+  setButtonWorking("#testAiBtn", "Probando");
   $("#aiTestOutput").classList.remove("hidden");
   $("#aiTestOutput").textContent = typedKey ? "Probando con la key ingresada…" : "Probando modelos activos con la key del servidor…";
   try {
@@ -4333,8 +4406,7 @@ async function testAiConnection() {
   } catch (error) {
     $("#aiTestOutput").innerHTML = `<strong>No conectó todavía.</strong><br>${escapeHtml(error.message)}`;
   } finally {
-    $("#testAiBtn").disabled = false;
-    $("#testAiBtn").textContent = "Probar IA";
+    restoreButton("#testAiBtn", "Probar IA");
   }
 }
 
@@ -4379,7 +4451,10 @@ async function sendChatMessage(text) {
   $("#chatInput").value = "";
   const submit = $("#chatForm button");
   submit.disabled = true;
-  submit.textContent = "Pensando...";
+  submit.textContent = "Pensando";
+  submit.classList.add("btn-working");
+  chatThinking = true;
+  renderChat();
   try {
     const result = await callOpenRouter({
       functionType: "search",
@@ -4417,10 +4492,12 @@ ${message}`,
       content: `No pude conectar con la IA todavía: ${error.message}\n\nRevisá OpenRouter > Guardar > Probar IA.`,
     });
   } finally {
+    chatThinking = false;
     saveState();
     renderChat();
     submit.disabled = false;
     submit.textContent = "Enviar";
+    submit.classList.remove("btn-working");
   }
 }
 
@@ -5446,8 +5523,7 @@ async function findLogoLikePhotos(photos) {
 
 async function generateReport() {
   const property = selectedProperty();
-  $("#generateReportBtn").disabled = true;
-  $("#generateReportBtn").textContent = "Creando...";
+  setButtonWorking("#generateReportBtn", "Creando");
   try {
     if (settings.apiKey || serverConfig.openRouterConfigured) {
       property.report = await callOpenRouter({
@@ -5478,8 +5554,7 @@ ${JSON.stringify(property.analysis || {}, null, 2)}`,
     saveState();
     renderReport();
   } finally {
-    $("#generateReportBtn").disabled = false;
-    $("#generateReportBtn").textContent = "Crear informe";
+    restoreButton("#generateReportBtn", "Crear informe");
   }
 }
 

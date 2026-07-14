@@ -184,6 +184,25 @@ button.primary:hover, .primary:hover { background: var(--gold-deep); border-colo
 .delete-btn:hover { background: var(--bad); border-color: var(--bad); color: var(--paper); }
 .edit-btn:hover { background: var(--ink); }
 
+/* Botón mientras la IA trabaja: elipsis animada + pulso suave.
+   Opacidad plena (no el 0.45 de disabled): está ocupado, no apagado. */
+button.btn-working {
+  opacity: 1;
+  cursor: progress;
+  animation: btn-pulse 1.4s ease-in-out infinite;
+}
+button.btn-working::after {
+  content: '';
+  display: inline-block;
+  width: 1.1em;
+  text-align: left;
+  animation: working-ellipsis 1.4s steps(1, end) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.btn-working, button.btn-working::after { animation: none; }
+  button.btn-working::after { content: '…'; }
+}
+
 :is(button, input, select, textarea, a, [tabindex]):focus-visible {
   outline: none;
   border-color: var(--gold);
@@ -1733,6 +1752,16 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
 }
 .chat-bubble.user { background: var(--sand); border-color: var(--line); justify-self: end; }
 
+/* Burbuja "escribiendo": tres puntos que laten mientras responde la IA */
+.chat-bubble.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 13px 16px;
+  animation: rise-in 200ms ease-out;
+}
+.chat-bubble.typing .typing-dot { width: 7px; height: 7px; }
+
 .chat-form { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 .chat-form input { flex: 1; min-width: 0; }
 .quick-prompts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 14px; }
@@ -2055,8 +2084,43 @@ body.ai-searching .roomix-search-input { border-color: var(--gold); }
   padding: 14px 16px;
 }
 .operation-progress-head { display: flex; justify-content: space-between; gap: 10px; font-size: var(--t-small); color: var(--ink-soft); margin-bottom: 8px; }
+.operation-progress-head span { font-variant-numeric: tabular-nums; color: var(--gold-deep); font-weight: 500; }
 .operation-progress-detail { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.operation-progress-bar { width: 0; position: relative; overflow: hidden; }
+/* Mientras trabaja: brillo que recorre la barra + puntos suspensivos animados,
+   para que “pensando” se vea vivo aunque el porcentaje esté quieto. */
+.operation-progress.working .operation-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, 0.45) 50%, transparent 75%);
+  animation: bar-sheen 1.5s ease-in-out infinite;
+}
+@keyframes bar-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+.operation-progress.working .operation-progress-head strong::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: working-ellipsis 1.4s steps(1, end) infinite;
+}
+@keyframes working-ellipsis {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+.operation-progress.done .operation-progress-bar { background: var(--ok); }
+.operation-progress.done .operation-progress-head span { color: var(--ok); }
 .operation-progress.error .operation-progress-bar { background: var(--bad); }
+.operation-progress.error .operation-progress-head span { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) {
+  .operation-progress.working .operation-progress-bar::after,
+  .operation-progress.working .operation-progress-head strong::after { animation: none; }
+}
 
 /* publish step */
 .publish-checklist { display: grid; gap: 6px; margin-bottom: 16px; }
