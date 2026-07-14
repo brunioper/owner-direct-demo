@@ -490,6 +490,7 @@
               </div>
               <div class="panel-actions">
                 <button id="estimateCostsBtn" title="Estima los costos vacíos según m², tipo y precio">Estimar costos</button>
+                <button id="readInvoicesBtn" class="primary" title="La IA lee tus facturas subidas y completa los promedios en USD">Calcular promedios con IA</button>
                 <label class="upload-btn">
                   Subir documento
                   <input id="documentInput" type="file" accept="image/*,.pdf" multiple />
@@ -497,6 +498,7 @@
               </div>
             </div>
             <div id="costEstimateNote" class="hint hidden">Valores estimados según m², tipo y precio — reemplazalos con los montos de tus facturas reales. El comprador ve la diferencia entre costos declarados y verificados.</div>
+            <div id="costsAiProgress" class="operation-progress hidden"></div>
             <div class="form-grid">
               <label>UTE promedio mensual<input name="uteAvg" form="propertyForm" type="number" min="0" /></label>
               <label>OSE promedio mensual<input name="oseAvg" form="propertyForm" type="number" min="0" /></label>

@@ -408,8 +408,20 @@ function authHeaders(extra = {}) {
   };
 }
 
+let storageQuotaWarned = false;
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Fotos/documentos en base64 pueden superar la cuota de localStorage.
+    // El estado sigue vivo en memoria y en el servidor; romper acá dejaba
+    // subidas "fantasma" que nunca se veían en pantalla.
+    if (!storageQuotaWarned) {
+      storageQuotaWarned = true;
+      showToast("Espacio local lleno — los cambios se guardan en el servidor pero no quedan en este navegador.");
+    }
+  }
   scheduleRemoteSave();
 }
 
@@ -5589,6 +5601,137 @@ function guessDocumentKind(name = "") {
   return "Otro";
 }
 
+/* ── Facturas → promedios de costos (IA de visión) ─────────────────── */
+
+// Categoría de factura → campo de la ficha y período que espera ese campo.
+const INVOICE_FIELD_MAP = {
+  "ute": { field: "uteAvg", period: "mensual", label: "UTE" },
+  "ose": { field: "oseAvg", period: "mensual", label: "OSE" },
+  "antel": { field: "antelAvg", period: "mensual", label: "Antel" },
+  "gastos comunes": { field: "commonFees", period: "mensual", label: "Gastos comunes" },
+  "contribucion": { field: "contribucionAnnual", period: "anual", label: "Contribución" },
+  "primaria": { field: "primariaAnnual", period: "anual", label: "Primaria" },
+  "seguro hogar": { field: "insuranceAvg", period: "mensual", label: "Seguro hogar" },
+};
+
+const INVOICE_DOC_KINDS = new Set(["Factura UTE", "Factura OSE", "Factura Antel", "Gastos comunes", "Contribucion", "Primaria", "Seguro hogar"]);
+
+async function runInvoiceCostAnalysis() {
+  const property = selectedProperty();
+  const invoiceDocs = (property.documents || []).filter((doc) => INVOICE_DOC_KINDS.has(doc.kind));
+  if (!invoiceDocs.length) {
+    alert("Subí primero al menos una factura (UTE, OSE, Antel, gastos comunes, contribución…) y verificá que el tipo detectado sea el correcto.");
+    return;
+  }
+  const imageDocs = invoiceDocs.filter((doc) => String(doc.dataUrl || "").startsWith("data:image/"));
+  const skippedPdfs = invoiceDocs.length - imageDocs.length;
+  if (!imageDocs.length) {
+    alert("Las facturas cargadas son PDF y la IA lee imágenes. Subí una foto o captura de pantalla de cada factura.");
+    return;
+  }
+  setButtonWorking("#readInvoicesBtn", "Leyendo facturas");
+  setOperationProgress("#costsAiProgress", {
+    title: "Preparando facturas",
+    detail: `${imageDocs.length} imagen${imageDocs.length === 1 ? "" : "es"}${skippedPdfs ? ` (${skippedPdfs} PDF omitido${skippedPdfs === 1 ? "" : "s"})` : ""}.`,
+    percent: 10,
+  });
+  try {
+    const limited = imageDocs.slice(0, 8);
+    const images = await Promise.all(limited.map(async (doc) => ({
+      kind: doc.kind,
+      name: doc.name,
+      image: await downscaleImageForAi(doc.dataUrl, 1024),
+    })));
+    setOperationProgress("#costsAiProgress", {
+      title: "Leyendo montos",
+      detail: "El modelo visual extrae total, moneda y período de cada factura.",
+      percent: 35,
+    });
+    const result = await callOpenRouter({
+      functionType: "vision",
+      temperature: 0,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Sos un extractor de datos de facturas de servicios de Uruguay. Analizá cada imagen y devolvé SOLO JSON válido:
+{"invoices":[{"document_index":1,"category":"UTE|OSE|Antel|Gastos comunes|Contribucion|Primaria|Seguro hogar|otro","amount":number|null,"currency":"UYU|USD","period":"mensual|bimestral|anual"}]}
+- amount = TOTAL A PAGAR de la factura (no consumo en kWh ni m³, no saldos anteriores).
+- Usá null si no se puede leer con certeza. Sin texto fuera del JSON.`,
+          },
+          ...images.flatMap((item, i) => [
+            { type: "text", text: `Documento ${i + 1} — tipo declarado: ${item.kind} — archivo: ${item.name}` },
+            { type: "image_url", image_url: { url: item.image } },
+          ]),
+        ],
+      }],
+    });
+    setOperationProgress("#costsAiProgress", { title: "Calculando promedios", percent: 82 });
+    const summary = applyInvoiceAverages(property, Array.isArray(result.invoices) ? result.invoices : []);
+    if (!summary.length) {
+      setOperationProgress("#costsAiProgress", {
+        title: "No pude leer montos",
+        detail: "Probá con fotos más nítidas donde se vea el total a pagar.",
+        percent: 100,
+        status: "error",
+      });
+      return;
+    }
+    property.costsEstimated = false;
+    saveState();
+    renderAll();
+    setOperationProgress("#costsAiProgress", {
+      title: "Promedios cargados",
+      detail: `${summary.join(" · ")} — revisá y ajustá si hace falta.`,
+      percent: 100,
+      status: "done",
+    });
+    showToast(`Costos completados desde facturas: ${summary.length} campo${summary.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    setOperationProgress("#costsAiProgress", {
+      title: "No se pudo leer las facturas",
+      detail: error.message,
+      percent: 100,
+      status: "error",
+    });
+  } finally {
+    restoreButton("#readInvoicesBtn", "Calcular promedios con IA");
+  }
+}
+
+// Convierte cada factura leída al período/moneda del campo y promedia por campo.
+function applyInvoiceAverages(property, invoices) {
+  const uyuPerUsd = Number(MARKET_CONFIG.uyuPerUsd) || 41;
+  const byField = {};
+  for (const row of invoices) {
+    const meta = INVOICE_FIELD_MAP[normalizeText(row.category)];
+    const amount = Number(row.amount);
+    if (!meta || !Number.isFinite(amount) || amount <= 0) continue;
+    let usd = String(row.currency || "UYU").toUpperCase() === "USD" ? amount : amount / uyuPerUsd;
+    const period = String(row.period || "mensual").toLowerCase();
+    // Normalizar al período del campo destino.
+    if (meta.period === "mensual") {
+      if (period === "bimestral") usd /= 2;
+      if (period === "anual") usd /= 12;
+    } else if (meta.period === "anual") {
+      if (period === "mensual") usd *= 12;
+      if (period === "bimestral") usd *= 6;
+    }
+    (byField[meta.field] ??= { label: meta.label, values: [] }).values.push(usd);
+  }
+  const summary = [];
+  for (const [field, { label, values }] of Object.entries(byField)) {
+    const average = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+    if (!average) continue;
+    property[field] = average;
+    const input = $(`#propertyForm [name="${field}"], [name="${field}"]`);
+    if (input) input.value = average;
+    summary.push(`${label}: ${formatUsd(average)}${values.length > 1 ? ` (prom. de ${values.length})` : ""}`);
+  }
+  return summary;
+}
+
 function missingFields(property) {
   const checks = [
     ["Precio", property.price],
@@ -6095,17 +6238,40 @@ function bindEvents() {
   $("#documentInput").addEventListener("change", async (event) => {
     const property = selectedProperty();
     const files = await filesToDataUrls(event.target.files);
-    property.documents.push(...files.map(({ file, dataUrl }) => ({
-      id: uid("doc"),
-      name: file.name,
-      type: file.type || "documento",
-      dataUrl,
-      kind: guessDocumentKind(file.name),
-    })));
     event.target.value = "";
+    const rejected = [];
+    let added = 0;
+    for (const { file, dataUrl } of files) {
+      let stored = dataUrl;
+      if (dataUrl.startsWith("data:image/")) {
+        // Una foto de factura de 4MB revienta la cuota de localStorage;
+        // comprimida a 1600px sigue siendo perfectamente legible.
+        stored = await downscaleImageForAi(dataUrl, 1600);
+      } else if (dataUrl.length > 1_500_000) {
+        rejected.push(file.name);
+        continue;
+      }
+      property.documents.push({
+        id: uid("doc"),
+        name: file.name,
+        type: file.type || "documento",
+        dataUrl: stored,
+        kind: guessDocumentKind(file.name),
+      });
+      added += 1;
+    }
     saveState();
     renderAll();
+    if (rejected.length) {
+      showToast(`${rejected.join(", ")}: PDF muy pesado (máx ~1MB). Subí una foto o captura de la factura.`);
+    } else if (added) {
+      const invoiceKinds = property.documents.filter((d) => String(d.kind).startsWith("Factura") || ["Gastos comunes", "Contribucion", "Primaria", "Seguro hogar"].includes(d.kind)).length;
+      showToast(invoiceKinds
+        ? `${added} documento${added === 1 ? "" : "s"} subido${added === 1 ? "" : "s"} — usá "Calcular promedios con IA" para completar los costos.`
+        : `${added} documento${added === 1 ? "" : "s"} subido${added === 1 ? "" : "s"}.`);
+    }
   });
+  $("#readInvoicesBtn")?.addEventListener("click", runInvoiceCostAnalysis);
 
   $("#documentsList").addEventListener("change", (event) => {
     const id = event.target.dataset.documentKind;

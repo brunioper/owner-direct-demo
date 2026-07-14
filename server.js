@@ -1337,12 +1337,14 @@ function humanOpenRouterError(status, text = "") {
   }
 }
 
-function readBody(req) {
+// 25MB: las fichas viajan con fotos y facturas en base64. El límite anterior
+// de 2MB rechazaba el guardado remoto apenas se subía un documento real.
+function readBody(req, limit = 25_000_000) {
   return new Promise((resolve, reject) => {
     let data = "";
     req.on("data", (chunk) => {
       data += chunk;
-      if (data.length > 2_000_000) reject(new Error("Body demasiado grande."));
+      if (data.length > limit) reject(new Error("Body demasiado grande."));
     });
     req.on("end", () => resolve(data));
     req.on("error", reject);

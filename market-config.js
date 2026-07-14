@@ -7,6 +7,10 @@ const MARKET_CONFIG = {
   neighborhoodLabel: "Barrio",
   defaultCity: "Montevideo",
 
+  // Approximate exchange rate used to convert invoice amounts (UYU) into the
+  // USD cost fields. The owner can always adjust the resulting numbers.
+  uyuPerUsd: 41,
+
   // Each entry maps to a property field and document kind.
   utilityProviders: [
     { name: "UTE",   field: "uteAvg",   label: "UTE promedio",        docKind: "Factura UTE"   },
